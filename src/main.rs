@@ -34,6 +34,9 @@ enum Command {
 struct NewArgs {
     /// `AtCoder` のコンテスト ID（例: abc300）
     contest: String,
+    /// 作成する問題（例: a c ex、省略時は全問題）
+    #[arg(value_name = "PROBLEM")]
+    problems: Vec<String>,
     /// 作成先の日付（省略時はローカルの今日、形式: YYYY-MM-DD）
     #[arg(long)]
     date: Option<String>,
@@ -66,9 +69,13 @@ fn main() -> Result<()> {
     let config = Config::load(&repository)?;
 
     match cli.command {
-        Command::New(args) => {
-            new_cmd::run(&repository, &config, &args.contest, args.date.as_deref())
-        }
+        Command::New(args) => new_cmd::run(
+            &repository,
+            &config,
+            &args.contest,
+            &args.problems,
+            args.date.as_deref(),
+        ),
         Command::Fetch(args) => {
             let problem_dir = repository.find_problem_dir(&current_dir.join(args.path))?;
             fetch_cmd::run(&problem_dir)

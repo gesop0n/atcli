@@ -6,7 +6,7 @@ use chrono::{Datelike, Local, NaiveDate};
 use crate::{
     atcoder::{AtCoderClient, replace_samples},
     config::Config,
-    model::ProblemMeta,
+    model::{ContestTask, ProblemMeta},
     paths::Repository,
 };
 
@@ -14,6 +14,7 @@ pub fn run(
     repository: &Repository,
     config: &Config,
     contest: &str,
+    requested_problems: &[String],
     requested_date: Option<&str>,
 ) -> Result<()> {
     let contest = normalize_contest_id(contest)?;
@@ -38,6 +39,7 @@ pub fn run(
     let client = AtCoderClient::new()?;
     println!("Fetching {contest} task list...");
     let tasks = client.contest_tasks(&contest)?;
+    let tasks = select_tasks(&tasks, requested_problems)?;
 
     for (index, task) in tasks.iter().enumerate() {
         let directory_name = task_directory_name(&task.label, &task.task_id)?;
@@ -89,6 +91,55 @@ pub fn run(
     Ok(())
 }
 
+fn select_tasks<'a>(
+    tasks: &'a [ContestTask],
+    requested_problems: &[String],
+) -> Result<Vec<&'a ContestTask>> {
+    if requested_problems.is_empty() {
+        return Ok(tasks.iter().collect());
+    }
+
+    let selectors = requested_problems
+        .iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if selectors.iter().any(String::is_empty) {
+        bail!("問題の指定を空にはできません");
+    }
+
+    let unknown = selectors
+        .iter()
+        .filter(|selector| {
+            !tasks.iter().any(|task| {
+                task.label.eq_ignore_ascii_case(selector)
+                    || task.task_id.eq_ignore_ascii_case(selector)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        let available = tasks
+            .iter()
+            .map(|task| task.label.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        bail!(
+            "指定された問題が見つかりません: {}（選択可能: {available}）",
+            unknown.join(", ")
+        );
+    }
+
+    Ok(tasks
+        .iter()
+        .filter(|task| {
+            selectors.iter().any(|selector| {
+                task.label.eq_ignore_ascii_case(selector)
+                    || task.task_id.eq_ignore_ascii_case(selector)
+            })
+        })
+        .collect())
+}
+
 fn normalize_contest_id(value: &str) -> Result<String> {
     let normalized = value.trim().to_ascii_lowercase();
     if normalized.is_empty()
@@ -133,7 +184,18 @@ fn task_directory_name(label: &str, task_id: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_contest_id, parse_date, task_directory_name};
+    use crate::model::ContestTask;
+
+    use super::{normalize_contest_id, parse_date, select_tasks, task_directory_name};
+
+    fn task(label: &str, task_id: &str) -> ContestTask {
+        ContestTask {
+            label: label.to_owned(),
+            task_id: task_id.to_owned(),
+            title: String::new(),
+            url: String::new(),
+        }
+    }
 
     #[test]
     fn validates_contest_id() {
@@ -151,5 +213,43 @@ mod tests {
     fn derives_problem_directory_name() {
         assert_eq!(task_directory_name("Ex", "abc300_h").unwrap(), "ex");
         assert_eq!(task_directory_name("問題A", "abc300_a").unwrap(), "a");
+    }
+
+    #[test]
+    fn selects_all_tasks_when_no_problem_is_requested() {
+        let tasks = [task("A", "abc300_a"), task("B", "abc300_b")];
+        let selected = select_tasks(&tasks, &[]).unwrap();
+
+        assert_eq!(selected, tasks.iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn selects_requested_tasks_by_label_or_task_id() {
+        let tasks = [
+            task("A", "abc300_a"),
+            task("B", "abc300_b"),
+            task("Ex", "abc300_h"),
+        ];
+        let requested = ["ex".to_owned(), "ABC300_A".to_owned()];
+        let selected = select_tasks(&tasks, &requested).unwrap();
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|task| task.label.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "Ex"]
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_requested_tasks() {
+        let tasks = [task("A", "abc300_a"), task("B", "abc300_b")];
+        let error = select_tasks(&tasks, &["c".to_owned()]).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "指定された問題が見つかりません: c（選択可能: A, B）"
+        );
     }
 }
