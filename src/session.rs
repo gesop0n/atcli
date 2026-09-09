@@ -39,14 +39,13 @@ pub struct SessionStore {
 
 impl SessionStore {
     pub fn discover() -> Result<Self> {
-        let base = env::var_os(STATE_DIR_ENV)
-            .map(PathBuf::from)
-            .or_else(dirs::state_dir)
-            .or_else(dirs::data_local_dir)
-            .context("セッション保存先を決められません。ATCLI_STATE_DIR を設定してください")?;
-        Ok(Self {
-            path: base.join("atcli/session.json"),
-        })
+        let path = match env::var_os(STATE_DIR_ENV) {
+            Some(base) => PathBuf::from(base).join("atcli/session.json"),
+            None => dirs::home_dir()
+                .context("ホームディレクトリを取得できません。ATCLI_STATE_DIR を設定してください")?
+                .join(".atcli/session.json"),
+        };
+        Ok(Self { path })
     }
 
     #[cfg(test)]
@@ -142,7 +141,7 @@ mod tests {
     #[test]
     fn saves_loads_and_removes_session() {
         let temp = tempdir().unwrap();
-        let path = temp.path().join("state/atcli/session.json");
+        let path = temp.path().join(".atcli/session.json");
         let store = SessionStore::at(path.clone());
         let session = Session::new("secret-cookie").unwrap();
 
