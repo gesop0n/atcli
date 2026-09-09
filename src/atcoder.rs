@@ -36,6 +36,7 @@ pub struct Language {
 pub struct SubmitPage {
     pub csrf_token: String,
     pub languages: Vec<Language>,
+    pub requires_captcha: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -291,7 +292,7 @@ pub fn parse_csrf_token(html: &str) -> Result<String> {
 pub fn parse_submit_page(html: &str, task_id: &str) -> Result<SubmitPage> {
     let document = Html::parse_document(html);
     let csrf_token = parse_csrf_token(html)?;
-    let targeted_selector = Selector::parse(&format!("select#select-lang-{task_id} option")).ok();
+    let targeted_selector = Selector::parse(&format!("[id=\"select-lang-{task_id}\"] option")).ok();
     let generic_selector = selector("select[name=\"data.LanguageId\"] option");
     let targeted = targeted_selector
         .as_ref()
@@ -304,9 +305,15 @@ pub fn parse_submit_page(html: &str, task_id: &str) -> Result<SubmitPage> {
     if languages.is_empty() {
         bail!("{task_id} の提出言語が見つかりません");
     }
+    let captcha_selector = selector(
+        ".cf-challenge, .cf-turnstile, [name=\"cf-turnstile-response\"], \
+         script[src*=\"challenges.cloudflare.com/turnstile\"]",
+    );
+    let requires_captcha = document.select(&captcha_selector).next().is_some();
     Ok(SubmitPage {
         csrf_token,
         languages,
+        requires_captcha,
     })
 }
 
@@ -670,15 +677,19 @@ mod tests {
           <form name="form_logout">
             <input type="hidden" name="csrf_token" value="token&#43;value=" />
           </form>
-          <select id="select-lang-abc300_a" name="data.LanguageId">
-            <option value="">-</option>
-            <option value="5001">C++ 20 (gcc 12.2)</option>
-            <option value="5002"> C++ 23
-              (gcc 12.2) </option>
-          </select>
-          <select id="select-lang-abc300_b" name="data.LanguageId">
-            <option value="5078">Python (CPython 3.11.4)</option>
-          </select>
+          <div id="select-lang-abc300_a">
+            <select name="data.LanguageId">
+              <option value="">-</option>
+              <option value="5001">C++20 (GCC 12.2)</option>
+              <option value="5002"> C++23
+                (GCC 15.2.0) </option>
+            </select>
+          </div>
+          <div id="select-lang-abc300_b">
+            <select name="data.LanguageId">
+              <option value="5078">Python (CPython 3.11.4)</option>
+            </select>
+          </div>
         "#;
 
         assert_eq!(parse_csrf_token(html).unwrap(), "token+value=");
@@ -686,7 +697,56 @@ mod tests {
         assert_eq!(page.csrf_token, "token+value=");
         assert_eq!(page.languages.len(), 2);
         assert_eq!(page.languages[0].id, "5001");
-        assert_eq!(page.languages[1].name, "C++ 23 (gcc 12.2)");
+        assert_eq!(page.languages[1].name, "C++23 (GCC 15.2.0)");
+        assert!(!page.requires_captcha);
+    }
+
+    #[test]
+    fn detects_turnstile_while_preserving_submit_page_data() {
+        let html = r#"
+          <form>
+            <input type="hidden" name="csrf_token" value="token" />
+            <div id="select-lang-abc300_a">
+              <select><option value="6017">C++23 (GCC 15.2.0)</option></select>
+            </div>
+            <script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
+            <div class="cf-challenge" data-sitekey="site-key"></div>
+          </form>
+        "#;
+
+        let page = parse_submit_page(html, "abc300_a").unwrap();
+        assert!(page.requires_captcha);
+        assert_eq!(page.csrf_token, "token");
+        assert_eq!(page.languages.len(), 1);
+        assert_eq!(page.languages[0].id, "6017");
+    }
+
+    #[test]
+    fn rejects_submit_pages_missing_required_data() {
+        let without_csrf = r#"
+          <div id="select-lang-abc300_a">
+            <select><option value="6017">C++23 (GCC 15.2.0)</option></select>
+          </div>
+        "#;
+        let without_languages = r#"
+          <input type="hidden" name="csrf_token" value="token" />
+          <div id="select-lang-abc300_a"><select><option value=""></option></select></div>
+        "#;
+
+        assert!(
+            parse_submit_page(without_csrf, "abc300_a")
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("csrf_token")
+        );
+        assert!(
+            parse_submit_page(without_languages, "abc300_a")
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("提出言語")
+        );
     }
 
     #[test]

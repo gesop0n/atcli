@@ -79,6 +79,17 @@ pub fn run(
     println!("Language: {} ({})", language.name, language.id);
     println!("Source:   {} ({line_count} lines)", source_path.display());
 
+    if page.requires_captcha {
+        bail!(
+            "AtCoder の提出ページで CAPTCHA 認証が必要なため、CLI からは提出できません。\n\
+             ブラウザで https://atcoder.jp/contests/{}/submit?taskScreenName={} を開き、\n\
+             {} を貼り付けて提出してください",
+            meta.contest,
+            meta.task_id,
+            source_path.display()
+        );
+    }
+
     if !options.yes && !confirm("Submit to AtCoder? [y/N] ")? {
         bail!("提出をキャンセルしました");
     }
@@ -215,17 +226,21 @@ mod tests {
     #[test]
     fn resolves_language_by_id_exact_name_or_unique_fragment() {
         let languages = [
-            language("5001", "C++ 20 (gcc 12.2)"),
-            language("5002", "C++ 23 (gcc 12.2)"),
+            language("5001", "C++23 (GCC 15.2.0)"),
+            language("5002", "C++23 (Clang 21.1.0)"),
             language("5078", "Python (CPython 3.11.4)"),
         ];
 
         assert_eq!(resolve_language(&languages, "5001").unwrap().id, "5001");
         assert_eq!(
-            resolve_language(&languages, "c++ 23 (GCC 12.2)")
+            resolve_language(&languages, "c++23 (gcc 15.2.0)")
                 .unwrap()
                 .id,
-            "5002"
+            "5001"
+        );
+        assert_eq!(
+            resolve_language(&languages, "C++23 (GCC").unwrap().id,
+            "5001"
         );
         assert_eq!(resolve_language(&languages, "Python").unwrap().id, "5078");
         assert!(resolve_language(&languages, "C++").is_err());

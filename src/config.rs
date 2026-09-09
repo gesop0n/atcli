@@ -85,7 +85,7 @@ pub struct SubmitConfig {
 impl Default for SubmitConfig {
     fn default() -> Self {
         Self {
-            language: "C++ 23".to_owned(),
+            language: "C++23 (GCC".to_owned(),
             watch: true,
             poll_interval_ms: 2_000,
         }
