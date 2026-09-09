@@ -11,6 +11,7 @@ pub struct Config {
     pub repository: RepositoryConfig,
     pub cpp: CppConfig,
     pub test: TestConfig,
+    pub submit: SubmitConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +69,25 @@ impl Default for TestConfig {
         Self {
             timeout_multiplier: 2.0,
             minimum_timeout_ms: 1_000,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct SubmitConfig {
+    /// Language ID or an unambiguous part of the language name on `AtCoder`.
+    pub language: String,
+    pub watch: bool,
+    pub poll_interval_ms: u64,
+}
+
+impl Default for SubmitConfig {
+    fn default() -> Self {
+        Self {
+            language: "C++ 23".to_owned(),
+            watch: true,
+            poll_interval_ms: 2_000,
         }
     }
 }

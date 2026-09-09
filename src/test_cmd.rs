@@ -28,20 +28,36 @@ struct Execution {
     timed_out: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TestSummary {
+    pub passed: usize,
+    pub unchecked: usize,
+    pub failed: usize,
+}
+
+impl TestSummary {
+    pub fn require_success(self) -> Result<Self> {
+        if self.failed > 0 {
+            bail!("{} test case(s) failed", self.failed);
+        }
+        Ok(self)
+    }
+}
+
 pub fn run(
     repository: &Repository,
     config: &Config,
     problem_dir: &Path,
     release: bool,
     selected_case: Option<&str>,
-) -> Result<()> {
+) -> Result<TestSummary> {
     let meta = ProblemMeta::read(problem_dir)?;
     if meta.interactive {
         println!(
             "{} interactive task; local sample judge is skipped",
             "SKIP".yellow().bold()
         );
-        return Ok(());
+        return Ok(TestSummary::default());
     }
 
     validate_test_config(config)?;
@@ -127,10 +143,11 @@ pub fn run(
         unchecked.to_string().cyan(),
         failed.to_string().red()
     );
-    if failed > 0 {
-        bail!("{failed} test case(s) failed");
-    }
-    Ok(())
+    Ok(TestSummary {
+        passed,
+        unchecked,
+        failed,
+    })
 }
 
 fn validate_test_config(config: &Config) -> Result<()> {
