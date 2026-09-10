@@ -1,4 +1,9 @@
-use std::{fs, path::Path, thread, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    thread,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Local, NaiveDate};
@@ -6,7 +11,7 @@ use chrono::{Datelike, Local, NaiveDate};
 use crate::{
     atcoder::{AtCoderClient, replace_samples},
     config::Config,
-    model::{ContestTask, ProblemMeta},
+    model::{AttemptMeta, ContestTask, ProblemMeta},
     paths::Repository,
 };
 
@@ -22,12 +27,9 @@ pub fn run(
         .map(parse_date)
         .transpose()?
         .unwrap_or_else(|| Local::now().date_naive());
-    let solutions_root = if config.repository.solutions_dir == Path::new(".") {
-        repository.root.clone()
-    } else {
-        repository.root.join(&config.repository.solutions_dir)
-    };
-    let destination = solutions_root
+    let attempts_root = repository.root.join(&config.repository.attempts_dir);
+    let problems_root = repository.root.join(&config.repository.problems_dir);
+    let destination = attempts_root
         .join(format!("{:04}", date.year()))
         .join(format!("{:02}", date.month()))
         .join(format!("{:02}", date.day()))
@@ -43,44 +45,65 @@ pub fn run(
 
     for (index, task) in tasks.iter().enumerate() {
         let directory_name = task_directory_name(&task.label, &task.task_id)?;
-        let problem_dir = destination.join(directory_name);
-        fs::create_dir_all(problem_dir.join("tests")).with_context(|| {
+        let problem_relative = PathBuf::from(&contest).join(&directory_name);
+        let problem_dir = problems_root.join(&problem_relative);
+        let attempt_dir = destination.join(&directory_name);
+
+        let (sample_count, interactive, reused) = if problem_dir.join("meta.toml").is_file() {
+            let meta = ProblemMeta::read(&problem_dir)?;
+            if meta.contest != contest || meta.task_id != task.task_id {
+                bail!(
+                    "既存の問題データが別の問題を指しています: {}",
+                    problem_dir.display()
+                );
+            }
+            (count_samples(&problem_dir)?, meta.interactive, true)
+        } else {
+            fs::create_dir_all(problem_dir.join("tests")).with_context(|| {
+                format!(
+                    "問題データディレクトリを作成できません: {}",
+                    problem_dir.display()
+                )
+            })?;
+            let page = client.task_page(&task.url)?;
+            let meta = ProblemMeta {
+                url: task.url.clone(),
+                contest: contest.clone(),
+                task_id: task.task_id.clone(),
+                label: task.label.clone(),
+                title: task.title.clone(),
+                time_limit_ms: page.time_limit_ms,
+                interactive: page.interactive,
+                tolerance: None,
+            };
+            replace_samples(&problem_dir, &page.samples)?;
+            meta.write(&problem_dir)?;
+            (page.samples.len(), page.interactive, false)
+        };
+
+        fs::create_dir_all(&attempt_dir).with_context(|| {
             format!(
-                "問題ディレクトリを作成できません: {}",
-                problem_dir.display()
+                "取り組みディレクトリを作成できません: {}",
+                attempt_dir.display()
             )
         })?;
-
-        let main_cpp = problem_dir.join("main.cpp");
+        let attempt = AttemptMeta {
+            problem: problem_relative,
+        };
+        write_attempt_meta(&attempt_dir, &attempt)?;
+        let main_cpp = attempt_dir.join("main.cpp");
         if !main_cpp.exists() {
             fs::write(&main_cpp, &template)
                 .with_context(|| format!("テンプレートを書き込めません: {}", main_cpp.display()))?;
         }
 
-        let page = client.task_page(&task.url)?;
-        let meta = ProblemMeta {
-            url: task.url.clone(),
-            contest: contest.clone(),
-            task_id: task.task_id.clone(),
-            label: task.label.clone(),
-            title: task.title.clone(),
-            time_limit_ms: page.time_limit_ms,
-            interactive: page.interactive,
-            tolerance: None,
-        };
-        meta.write(&problem_dir)?;
-        replace_samples(&problem_dir, &page.samples)?;
-
         println!(
-            "  {:>3}  {} ({} samples{})",
+            "  {:>3}  {} ({} samples{}{})",
             task.label,
-            problem_dir.display(),
-            page.samples.len(),
-            if page.interactive {
-                ", interactive"
-            } else {
-                ""
-            }
+            attempt_dir.display(),
+            sample_count,
+            if interactive { ", interactive" } else { "" },
+            if reused { ", reused problem data" } else { "" }
         );
         if index + 1 != tasks.len() {
             thread::sleep(Duration::from_millis(200));
@@ -89,6 +112,37 @@ pub fn run(
 
     println!("Created {}", destination.display());
     Ok(())
+}
+
+fn write_attempt_meta(attempt_dir: &Path, expected: &AttemptMeta) -> Result<()> {
+    if attempt_dir.join("attempt.toml").is_file() {
+        let existing = AttemptMeta::read(attempt_dir)?;
+        if existing != *expected {
+            bail!(
+                "既存の attempt.toml が別の問題を指しています: {}",
+                attempt_dir.display()
+            );
+        }
+        return Ok(());
+    }
+    expected.write(attempt_dir)
+}
+
+fn count_samples(problem_dir: &Path) -> Result<usize> {
+    let tests_dir = problem_dir.join("tests");
+    let count = fs::read_dir(&tests_dir)
+        .with_context(|| format!("テストディレクトリを読めません: {}", tests_dir.display()))?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let path = entry.path();
+            path.extension().is_some_and(|extension| extension == "in")
+                && path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .is_some_and(|stem| stem.starts_with("sample-"))
+        })
+        .count();
+    Ok(count)
 }
 
 fn select_tasks<'a>(
@@ -184,9 +238,13 @@ fn task_directory_name(label: &str, task_id: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::ContestTask;
+    use tempfile::tempdir;
 
-    use super::{normalize_contest_id, parse_date, select_tasks, task_directory_name};
+    use crate::model::{AttemptMeta, ContestTask};
+
+    use super::{
+        normalize_contest_id, parse_date, select_tasks, task_directory_name, write_attempt_meta,
+    };
 
     fn task(label: &str, task_id: &str) -> ContestTask {
         ContestTask {
@@ -251,5 +309,22 @@ mod tests {
             error.to_string(),
             "指定された問題が見つかりません: c（選択可能: A, B）"
         );
+    }
+
+    #[test]
+    fn creates_idempotent_attempt_reference() {
+        let temp = tempdir().unwrap();
+        let expected = AttemptMeta {
+            problem: "abc300/a".into(),
+        };
+
+        write_attempt_meta(temp.path(), &expected).unwrap();
+        write_attempt_meta(temp.path(), &expected).unwrap();
+        assert_eq!(AttemptMeta::read(temp.path()).unwrap(), expected);
+
+        let other = AttemptMeta {
+            problem: "abc300/b".into(),
+        };
+        assert!(write_attempt_meta(temp.path(), &other).is_err());
     }
 }

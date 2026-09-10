@@ -1,7 +1,6 @@
 use std::{
     fs,
     io::{self, Write},
-    path::Path,
     thread,
     time::Duration,
 };
@@ -13,7 +12,7 @@ use crate::{
     atcoder::{AtCoderClient, Language},
     config::Config,
     model::ProblemMeta,
-    paths::Repository,
+    paths::{Attempt, Repository},
     session::SessionStore,
     test_cmd,
 };
@@ -30,11 +29,11 @@ pub struct Options<'a> {
 pub fn run(
     repository: &Repository,
     config: &Config,
-    problem_dir: &Path,
+    attempt: &Attempt,
     options: Options<'_>,
 ) -> Result<()> {
     validate_config(config)?;
-    let meta = ProblemMeta::read(problem_dir)?;
+    let meta = ProblemMeta::read(&attempt.problem_dir)?;
     let store = SessionStore::discover()?;
     let session = store
         .load()?
@@ -59,7 +58,7 @@ pub fn run(
             );
         }
         let summary =
-            test_cmd::run(repository, config, problem_dir, true, None)?.require_success()?;
+            test_cmd::run(repository, config, attempt, true, None, false)?.require_success()?;
         if summary.passed == 0 {
             bail!(
                 "期待出力付きのテストに合格していません。確認済みなら `atcli submit --no-test` を指定してください"
@@ -67,7 +66,7 @@ pub fn run(
         }
     }
 
-    let source_path = problem_dir.join("main.cpp");
+    let source_path = attempt.dir.join("main.cpp");
     let source = fs::read_to_string(&source_path)
         .with_context(|| format!("解答ファイルを読めません: {}", source_path.display()))?;
     if source.trim().is_empty() {

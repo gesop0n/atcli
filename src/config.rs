@@ -17,14 +17,16 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct RepositoryConfig {
-    pub solutions_dir: PathBuf,
+    pub problems_dir: PathBuf,
+    pub attempts_dir: PathBuf,
     pub template: PathBuf,
 }
 
 impl Default for RepositoryConfig {
     fn default() -> Self {
         Self {
-            solutions_dir: PathBuf::from("."),
+            problems_dir: PathBuf::from("problems"),
+            attempts_dir: PathBuf::from("attempts"),
             template: PathBuf::from("template/main.cpp"),
         }
     }

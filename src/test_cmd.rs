@@ -12,7 +12,11 @@ use owo_colors::OwoColorize;
 use similar::{ChangeTag, TextDiff};
 use wait_timeout::ChildExt;
 
-use crate::{config::Config, model::ProblemMeta, paths::Repository};
+use crate::{
+    config::Config,
+    model::ProblemMeta,
+    paths::{Attempt, Repository},
+};
 
 struct TestCase {
     name: String,
@@ -47,11 +51,12 @@ impl TestSummary {
 pub fn run(
     repository: &Repository,
     config: &Config,
-    problem_dir: &Path,
+    attempt: &Attempt,
     release: bool,
     selected_case: Option<&str>,
+    rebuild: bool,
 ) -> Result<TestSummary> {
-    let meta = ProblemMeta::read(problem_dir)?;
+    let meta = ProblemMeta::read(&attempt.problem_dir)?;
     if meta.interactive {
         println!(
             "{} interactive task; local sample judge is skipped",
@@ -61,8 +66,8 @@ pub fn run(
     }
 
     validate_test_config(config)?;
-    let binary = compile(repository, config, problem_dir, &meta, release)?;
-    let cases = discover_cases(problem_dir, selected_case)?;
+    let binary = compile(repository, config, &attempt.dir, &meta, release, rebuild)?;
+    let cases = discover_cases(&attempt.problem_dir, selected_case)?;
     let timeout = Duration::from_millis(meta.time_limit_ms)
         .mul_f64(config.test.timeout_multiplier)
         .max(Duration::from_millis(config.test.minimum_timeout_ms));
@@ -163,30 +168,25 @@ fn validate_test_config(config: &Config) -> Result<()> {
 fn compile(
     repository: &Repository,
     config: &Config,
-    problem_dir: &Path,
+    attempt_dir: &Path,
     meta: &ProblemMeta,
     release: bool,
+    rebuild: bool,
 ) -> Result<PathBuf> {
-    let source = problem_dir.join("main.cpp");
+    let source = attempt_dir.join("main.cpp");
     if !source.is_file() {
         bail!("解答ファイルが見つかりません: {}", source.display());
     }
 
-    let relative = problem_dir
+    let relative = attempt_dir
         .strip_prefix(&repository.root)
-        .unwrap_or(problem_dir);
-    let build_key = relative
-        .to_string_lossy()
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    let build_dir = repository.root.join(".atcli/build").join(build_key);
+        .with_context(|| {
+            format!(
+                "取り組みディレクトリはリポジトリ内に置いてください: {}",
+                attempt_dir.display()
+            )
+        })?;
+    let build_dir = repository.root.join(".atcli/build").join(relative);
     fs::create_dir_all(&build_dir).with_context(|| {
         format!(
             "ビルドディレクトリを作成できません: {}",
@@ -198,6 +198,18 @@ fn compile(
     } else {
         "main-debug"
     });
+    let depfile = binary.with_extension("d");
+    let fingerprint_file = binary.with_extension("fingerprint");
+
+    let command_signature = compiler_signature(repository, config, &source, release)?;
+    if !rebuild && cache_is_fresh(&binary, &depfile, &fingerprint_file, &command_signature) {
+        println!(
+            "Cached {} [{}]",
+            meta.task_id,
+            if release { "release" } else { "debug" }
+        );
+        return Ok(binary);
+    }
 
     let mut command = Command::new(&config.cpp.compiler);
     command
@@ -211,6 +223,7 @@ fn compile(
     for include_dir in &config.cpp.include_dirs {
         command.arg(format!("-I{}", repository.root.join(include_dir).display()));
     }
+    command.arg("-MMD").arg("-MF").arg(&depfile);
     command.arg("-o").arg(&binary);
 
     println!(
@@ -232,7 +245,124 @@ fn compile(
         }
         bail!("C++ のコンパイルに失敗しました");
     }
+    if let Ok(dependencies) = read_dependencies(&depfile) {
+        let fingerprint = fingerprint(&command_signature, &dependencies)?;
+        fs::write(&fingerprint_file, format!("{fingerprint:016x}\n")).with_context(|| {
+            format!(
+                "ビルドキャッシュ情報を書き込めません: {}",
+                fingerprint_file.display()
+            )
+        })?;
+    }
     Ok(binary)
+}
+
+fn compiler_signature(
+    repository: &Repository,
+    config: &Config,
+    source: &Path,
+    release: bool,
+) -> Result<String> {
+    let version = Command::new(&config.cpp.compiler)
+        .arg("--version")
+        .output()
+        .with_context(|| format!("C++ コンパイラを実行できません: {}", config.cpp.compiler))?;
+    let flags = if release {
+        &config.cpp.release_flags
+    } else {
+        &config.cpp.debug_flags
+    };
+    Ok(format!(
+        "compiler={}\nversion={}\nsource={}\nstandard={}\nflags={flags:?}\nincludes={:?}\n",
+        config.cpp.compiler,
+        String::from_utf8_lossy(&version.stdout),
+        source.display(),
+        config.cpp.standard,
+        config
+            .cpp
+            .include_dirs
+            .iter()
+            .map(|path| repository.root.join(path))
+            .collect::<Vec<_>>()
+    ))
+}
+
+fn cache_is_fresh(
+    binary: &Path,
+    depfile: &Path,
+    fingerprint_file: &Path,
+    command_signature: &str,
+) -> bool {
+    if !binary.is_file() || !fingerprint_file.is_file() {
+        return false;
+    }
+    let Ok(dependencies) = read_dependencies(depfile) else {
+        return false;
+    };
+    let Ok(current) = fingerprint(command_signature, &dependencies) else {
+        return false;
+    };
+    fs::read_to_string(fingerprint_file)
+        .is_ok_and(|stored| stored.trim() == format!("{current:016x}"))
+}
+
+fn read_dependencies(depfile: &Path) -> Result<Vec<PathBuf>> {
+    let contents = fs::read_to_string(depfile)
+        .with_context(|| format!("依存ファイルを読めません: {}", depfile.display()))?;
+    parse_dependencies(&contents)
+}
+
+fn parse_dependencies(contents: &str) -> Result<Vec<PathBuf>> {
+    let contents = contents.replace("\\\r\n", " ").replace("\\\n", " ");
+    let (_, dependencies) = contents
+        .split_once(':')
+        .context("依存ファイルの形式が不正です")?;
+    let mut paths = Vec::new();
+    let mut current = String::new();
+    let mut escaped = false;
+    for character in dependencies.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character.is_whitespace() {
+            if !current.is_empty() {
+                paths.push(PathBuf::from(std::mem::take(&mut current)));
+            }
+        } else {
+            current.push(character);
+        }
+    }
+    if escaped {
+        current.push('\\');
+    }
+    if !current.is_empty() {
+        paths.push(PathBuf::from(current));
+    }
+    if paths.is_empty() {
+        bail!("依存ファイルに入力がありません");
+    }
+    Ok(paths)
+}
+
+fn fingerprint(command_signature: &str, dependencies: &[PathBuf]) -> Result<u64> {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    hash_bytes(&mut hash, command_signature.as_bytes());
+    for dependency in dependencies {
+        hash_bytes(&mut hash, dependency.as_os_str().as_encoded_bytes());
+        let contents = fs::read(dependency)
+            .with_context(|| format!("依存ファイルを読めません: {}", dependency.display()))?;
+        hash_bytes(&mut hash, &contents);
+    }
+    Ok(hash)
+}
+
+fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
 }
 
 fn discover_cases(problem_dir: &Path, selected_case: Option<&str>) -> Result<Vec<TestCase>> {
@@ -410,7 +540,13 @@ fn print_stderr(stderr: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_output, outputs_equal};
+    use std::{fs, path::PathBuf};
+
+    use tempfile::tempdir;
+
+    use super::{
+        cache_is_fresh, fingerprint, normalized_output, outputs_equal, parse_dependencies,
+    };
 
     #[test]
     fn ignores_line_endings_trailing_spaces_and_final_blank_lines() {
@@ -422,5 +558,60 @@ mod tests {
     fn compares_numeric_tokens_with_tolerance() {
         assert!(outputs_equal("answer 1.0", "answer 1.0000001", Some(1e-6)));
         assert!(!outputs_equal("answer 1.0", "answer 1.1", Some(1e-6)));
+    }
+
+    #[test]
+    fn parses_makefile_dependencies_with_continuations_and_spaces() {
+        let depfile = concat!("main: /tmp/main.cpp \\", "\n", " /tmp/local\\ header.hpp\n");
+        let dependencies = parse_dependencies(depfile).unwrap();
+        assert_eq!(
+            dependencies,
+            [
+                PathBuf::from("/tmp/main.cpp"),
+                PathBuf::from("/tmp/local header.hpp"),
+            ]
+        );
+    }
+
+    #[test]
+    fn invalidates_cache_when_dependency_or_command_changes() {
+        let temp = tempdir().unwrap();
+        let source = temp.path().join("main.cpp");
+        let header = temp.path().join("local.hpp");
+        let binary = temp.path().join("main");
+        let depfile = temp.path().join("main.d");
+        let fingerprint_file = temp.path().join("main.fingerprint");
+        fs::write(&source, "#include \"local.hpp\"\n").unwrap();
+        fs::write(&header, "constexpr int answer = 42;\n").unwrap();
+        fs::write(&binary, "binary").unwrap();
+        fs::write(
+            &depfile,
+            format!("main: {} {}\n", source.display(), header.display()),
+        )
+        .unwrap();
+        let dependencies = [source, header.clone()];
+        let current = fingerprint("g++ -O0", &dependencies).unwrap();
+        fs::write(&fingerprint_file, format!("{current:016x}\n")).unwrap();
+
+        assert!(cache_is_fresh(
+            &binary,
+            &depfile,
+            &fingerprint_file,
+            "g++ -O0"
+        ));
+        assert!(!cache_is_fresh(
+            &binary,
+            &depfile,
+            &fingerprint_file,
+            "g++ -O2"
+        ));
+
+        fs::write(header, "constexpr int answer = 43;\n").unwrap();
+        assert!(!cache_is_fresh(
+            &binary,
+            &depfile,
+            &fingerprint_file,
+            "g++ -O0"
+        ));
     }
 }

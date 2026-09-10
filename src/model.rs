@@ -1,4 +1,7 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -38,6 +41,29 @@ pub struct ProblemMeta {
     pub interactive: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<f64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct AttemptMeta {
+    /// Path relative to the configured problems directory.
+    pub problem: PathBuf,
+}
+
+impl AttemptMeta {
+    pub fn read(attempt_dir: &Path) -> Result<Self> {
+        let path = attempt_dir.join("attempt.toml");
+        let source = fs::read_to_string(&path)
+            .with_context(|| format!("取り組みメタデータを読めません: {}", path.display()))?;
+        toml::from_str(&source)
+            .with_context(|| format!("取り組みメタデータの形式が不正です: {}", path.display()))
+    }
+
+    pub fn write(&self, attempt_dir: &Path) -> Result<()> {
+        let path = attempt_dir.join("attempt.toml");
+        let source = toml::to_string_pretty(self).context("取り組みメタデータを変換できません")?;
+        fs::write(&path, source)
+            .with_context(|| format!("取り組みメタデータを書き込めません: {}", path.display()))
+    }
 }
 
 impl ProblemMeta {
