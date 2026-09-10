@@ -85,6 +85,8 @@ struct PathArgs {
 
 #[derive(Debug, Subcommand)]
 enum PathTarget {
+    /// リポジトリのルートディレクトリ
+    Root,
     /// 今日（または指定日）の取り組みディレクトリ
     Today {
         /// 表示する日付（省略時はローカルの今日、形式: YYYY-MM-DD）
@@ -172,6 +174,10 @@ fn run_repository_command(command: Command) -> Result<()> {
             .map(|_| ())
         }
         Command::Path(args) => match args.target {
+            PathTarget::Root => {
+                path_cmd::root(&repository);
+                Ok(())
+            }
             PathTarget::Today { date } => path_cmd::today(&repository, &config, date.as_deref()),
         },
         Command::Submit(args) => {

@@ -3,6 +3,10 @@ use chrono::{Datelike, Local, NaiveDate};
 
 use crate::{config::Config, paths::Repository};
 
+pub fn root(repository: &Repository) {
+    println!("{}", repository.root.display());
+}
+
 pub fn today(repository: &Repository, config: &Config, requested_date: Option<&str>) -> Result<()> {
     let date = requested_date
         .map(parse_date)
@@ -44,6 +48,18 @@ mod tests {
 
         today(&repository, &config, Some("2026-09-08")).unwrap();
         assert!(today(&repository, &config, Some("2026-09-09")).is_err());
+    }
+
+    #[test]
+    fn accepts_repository_root() {
+        let temp = tempdir().unwrap();
+        fs::write(temp.path().join("atcli.toml"), "").unwrap();
+        let nested = temp.path().join("attempts/2026/09/08");
+        fs::create_dir_all(&nested).unwrap();
+        let repository = Repository::discover(&nested).unwrap();
+
+        root(&repository);
+        assert_eq!(repository.root, temp.path().canonicalize().unwrap());
     }
 
     #[test]
