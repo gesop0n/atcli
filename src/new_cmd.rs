@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     thread,
@@ -14,6 +15,9 @@ use crate::{
     model::{AttemptMeta, ContestTask, ProblemMeta},
     paths::Repository,
 };
+
+/// エラー文に並べる選択可能なラベルの上限。
+const MAX_LISTED_LABELS: usize = 20;
 
 pub fn run(
     repository: &Repository,
@@ -153,45 +157,59 @@ fn select_tasks<'a>(
         return Ok(tasks.iter().collect());
     }
 
-    let selectors = requested_problems
-        .iter()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    if selectors.iter().any(String::is_empty) {
+    // 添字の集合として持つことで、重複排除とコンテスト順の復元を同時に行う。
+    let mut selected = BTreeSet::new();
+    for requested in requested_problems {
+        let selector = requested.trim();
+        if let Some((start, end)) = selector.split_once("..") {
+            let start_index = resolve_index(tasks, start)?;
+            let end_index = resolve_index(tasks, end)?;
+            if start_index > end_index {
+                bail!("範囲の開始と終了が逆です: {selector}");
+            }
+            selected.extend(start_index..=end_index);
+        } else {
+            selected.insert(resolve_index(tasks, selector)?);
+        }
+    }
+
+    Ok(selected.into_iter().map(|index| &tasks[index]).collect())
+}
+
+/// ラベルまたは問題 ID から、コンテストの問題一覧における位置を求める。
+///
+/// 範囲指定をラベルの文字列計算ではなく位置で解決することで、`A77` から `B01` のような
+/// 区分をまたぐ範囲も、他コンテスト由来の問題 ID が混ざる場合も、ラベル体系を仮定せずに扱える。
+fn resolve_index(tasks: &[ContestTask], selector: &str) -> Result<usize> {
+    let selector = selector.trim();
+    if selector.is_empty() {
         bail!("問題の指定を空にはできません");
     }
-
-    let unknown = selectors
+    tasks
         .iter()
-        .filter(|selector| {
-            !tasks.iter().any(|task| {
-                task.label.eq_ignore_ascii_case(selector)
-                    || task.task_id.eq_ignore_ascii_case(selector)
-            })
+        .position(|task| {
+            task.label.eq_ignore_ascii_case(selector) || task.task_id.eq_ignore_ascii_case(selector)
         })
-        .cloned()
-        .collect::<Vec<_>>();
-    if !unknown.is_empty() {
-        let available = tasks
-            .iter()
-            .map(|task| task.label.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        bail!(
-            "指定された問題が見つかりません: {}（選択可能: {available}）",
-            unknown.join(", ")
-        );
+        .with_context(|| {
+            format!(
+                "指定された問題が見つかりません: {selector}（選択可能: {}）",
+                available_labels(tasks)
+            )
+        })
+}
+
+fn available_labels(tasks: &[ContestTask]) -> String {
+    let listed = tasks
+        .iter()
+        .take(MAX_LISTED_LABELS)
+        .map(|task| task.label.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if tasks.len() > MAX_LISTED_LABELS {
+        format!("{listed}, ...他 {} 件", tasks.len() - MAX_LISTED_LABELS)
+    } else {
+        listed
     }
-
-    Ok(tasks
-        .iter()
-        .filter(|task| {
-            selectors.iter().any(|selector| {
-                task.label.eq_ignore_ascii_case(selector)
-                    || task.task_id.eq_ignore_ascii_case(selector)
-            })
-        })
-        .collect())
 }
 
 fn normalize_contest_id(value: &str) -> Result<String> {
@@ -243,7 +261,8 @@ mod tests {
     use crate::model::{AttemptMeta, ContestTask};
 
     use super::{
-        normalize_contest_id, parse_date, select_tasks, task_directory_name, write_attempt_meta,
+        MAX_LISTED_LABELS, normalize_contest_id, parse_date, select_tasks, task_directory_name,
+        write_attempt_meta,
     };
 
     fn task(label: &str, task_id: &str) -> ContestTask {
@@ -253,6 +272,16 @@ mod tests {
             title: String::new(),
             url: String::new(),
         }
+    }
+
+    fn numbered_tasks(count: usize) -> Vec<ContestTask> {
+        (0..count)
+            .map(|index| task(&format!("A{index:02}"), &format!("tessoku_book_{index}")))
+            .collect()
+    }
+
+    fn labels<'a>(tasks: &[&'a ContestTask]) -> Vec<&'a str> {
+        tasks.iter().map(|task| task.label.as_str()).collect()
     }
 
     #[test]
@@ -291,13 +320,7 @@ mod tests {
         let requested = ["ex".to_owned(), "ABC300_A".to_owned()];
         let selected = select_tasks(&tasks, &requested).unwrap();
 
-        assert_eq!(
-            selected
-                .iter()
-                .map(|task| task.label.as_str())
-                .collect::<Vec<_>>(),
-            ["A", "Ex"]
-        );
+        assert_eq!(labels(&selected), ["A", "Ex"]);
     }
 
     #[test]
@@ -309,6 +332,93 @@ mod tests {
             error.to_string(),
             "指定された問題が見つかりません: c（選択可能: A, B）"
         );
+    }
+
+    #[test]
+    fn expands_label_ranges() {
+        let tasks = numbered_tasks(5);
+        let selected = select_tasks(&tasks, &["a01..a03".to_owned()]).unwrap();
+
+        assert_eq!(labels(&selected), ["A01", "A02", "A03"]);
+    }
+
+    #[test]
+    fn expands_ranges_across_label_sections() {
+        let tasks = [
+            task("A76", "tessoku_book_bx"),
+            task("A77", "typical90_a"),
+            task("B01", "tessoku_book_by"),
+            task("B02", "tessoku_book_bz"),
+            task("B03", "tessoku_book_ca"),
+        ];
+        let selected = select_tasks(&tasks, &["a77..b02".to_owned()]).unwrap();
+
+        assert_eq!(labels(&selected), ["A77", "B01", "B02"]);
+    }
+
+    #[test]
+    fn resolves_range_endpoints_by_task_id() {
+        let tasks = [
+            task("A76", "tessoku_book_bx"),
+            task("A77", "typical90_a"),
+            task("B01", "tessoku_book_by"),
+        ];
+        let selected = select_tasks(&tasks, &["typical90_a..b01".to_owned()]).unwrap();
+
+        assert_eq!(labels(&selected), ["A77", "B01"]);
+    }
+
+    #[test]
+    fn merges_overlapping_selectors_in_contest_order() {
+        let tasks = [
+            task("A", "abc300_a"),
+            task("B", "abc300_b"),
+            task("C", "abc300_c"),
+        ];
+        let requested = ["c".to_owned(), "a..b".to_owned(), "B".to_owned()];
+        let selected = select_tasks(&tasks, &requested).unwrap();
+
+        assert_eq!(labels(&selected), ["A", "B", "C"]);
+    }
+
+    #[test]
+    fn rejects_reversed_range() {
+        let tasks = numbered_tasks(5);
+        let error = select_tasks(&tasks, &["a03..a01".to_owned()]).unwrap_err();
+
+        assert_eq!(error.to_string(), "範囲の開始と終了が逆です: a03..a01");
+    }
+
+    #[test]
+    fn rejects_range_with_unknown_endpoint() {
+        let tasks = numbered_tasks(3);
+        let error = select_tasks(&tasks, &["a01..zz9".to_owned()]).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("指定された問題が見つかりません: zz9")
+        );
+    }
+
+    #[test]
+    fn rejects_empty_range_endpoint() {
+        let tasks = numbered_tasks(3);
+        let error = select_tasks(&tasks, ["..".to_owned()].as_slice()).unwrap_err();
+
+        assert_eq!(error.to_string(), "問題の指定を空にはできません");
+    }
+
+    #[test]
+    fn truncates_available_labels_in_error() {
+        let tasks = numbered_tasks(MAX_LISTED_LABELS + 10);
+
+        let message = select_tasks(&tasks, &["zz9".to_owned()])
+            .unwrap_err()
+            .to_string();
+
+        assert!(message.contains("...他 10 件"));
+        assert!(!message.contains("A29"));
     }
 
     #[test]
