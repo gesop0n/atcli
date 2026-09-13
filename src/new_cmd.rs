@@ -16,6 +16,8 @@ use crate::{
     paths::Repository,
 };
 
+/// 問題指定を省略して全問題を作成できる上限。`ABC` などの通常コンテストはいずれも下回る。
+const MAX_IMPLICIT_TASKS: usize = 20;
 /// エラー文に並べる選択可能なラベルの上限。
 const MAX_LISTED_LABELS: usize = 20;
 
@@ -25,6 +27,7 @@ pub fn run(
     contest: &str,
     requested_problems: &[String],
     requested_date: Option<&str>,
+    all: bool,
 ) -> Result<()> {
     let contest = normalize_contest_id(contest)?;
     let date = requested_date
@@ -45,7 +48,7 @@ pub fn run(
     let client = AtCoderClient::new()?;
     println!("Fetching {contest} task list...");
     let tasks = client.contest_tasks(&contest)?;
-    let tasks = select_tasks(&tasks, requested_problems)?;
+    let tasks = select_tasks(&tasks, requested_problems, all)?;
 
     for (index, task) in tasks.iter().enumerate() {
         let directory_name = task_directory_name(&task.label, &task.task_id)?;
@@ -152,8 +155,15 @@ fn count_samples(problem_dir: &Path) -> Result<usize> {
 fn select_tasks<'a>(
     tasks: &'a [ContestTask],
     requested_problems: &[String],
+    all: bool,
 ) -> Result<Vec<&'a ContestTask>> {
     if requested_problems.is_empty() {
+        if !all && tasks.len() > MAX_IMPLICIT_TASKS {
+            bail!(
+                "問題数が多いコンテストです（{} 問）。作成する問題を指定するか、全問題を作成する場合は --all を指定してください（例: a01..a05）",
+                tasks.len()
+            );
+        }
         return Ok(tasks.iter().collect());
     }
 
@@ -261,8 +271,8 @@ mod tests {
     use crate::model::{AttemptMeta, ContestTask};
 
     use super::{
-        MAX_LISTED_LABELS, normalize_contest_id, parse_date, select_tasks, task_directory_name,
-        write_attempt_meta,
+        MAX_IMPLICIT_TASKS, MAX_LISTED_LABELS, normalize_contest_id, parse_date, select_tasks,
+        task_directory_name, write_attempt_meta,
     };
 
     fn task(label: &str, task_id: &str) -> ContestTask {
@@ -305,7 +315,7 @@ mod tests {
     #[test]
     fn selects_all_tasks_when_no_problem_is_requested() {
         let tasks = [task("A", "abc300_a"), task("B", "abc300_b")];
-        let selected = select_tasks(&tasks, &[]).unwrap();
+        let selected = select_tasks(&tasks, &[], false).unwrap();
 
         assert_eq!(selected, tasks.iter().collect::<Vec<_>>());
     }
@@ -318,7 +328,7 @@ mod tests {
             task("Ex", "abc300_h"),
         ];
         let requested = ["ex".to_owned(), "ABC300_A".to_owned()];
-        let selected = select_tasks(&tasks, &requested).unwrap();
+        let selected = select_tasks(&tasks, &requested, false).unwrap();
 
         assert_eq!(labels(&selected), ["A", "Ex"]);
     }
@@ -326,7 +336,7 @@ mod tests {
     #[test]
     fn rejects_unknown_requested_tasks() {
         let tasks = [task("A", "abc300_a"), task("B", "abc300_b")];
-        let error = select_tasks(&tasks, &["c".to_owned()]).unwrap_err();
+        let error = select_tasks(&tasks, &["c".to_owned()], false).unwrap_err();
 
         assert_eq!(
             error.to_string(),
@@ -337,7 +347,7 @@ mod tests {
     #[test]
     fn expands_label_ranges() {
         let tasks = numbered_tasks(5);
-        let selected = select_tasks(&tasks, &["a01..a03".to_owned()]).unwrap();
+        let selected = select_tasks(&tasks, &["a01..a03".to_owned()], false).unwrap();
 
         assert_eq!(labels(&selected), ["A01", "A02", "A03"]);
     }
@@ -351,7 +361,7 @@ mod tests {
             task("B02", "tessoku_book_bz"),
             task("B03", "tessoku_book_ca"),
         ];
-        let selected = select_tasks(&tasks, &["a77..b02".to_owned()]).unwrap();
+        let selected = select_tasks(&tasks, &["a77..b02".to_owned()], false).unwrap();
 
         assert_eq!(labels(&selected), ["A77", "B01", "B02"]);
     }
@@ -363,7 +373,7 @@ mod tests {
             task("A77", "typical90_a"),
             task("B01", "tessoku_book_by"),
         ];
-        let selected = select_tasks(&tasks, &["typical90_a..b01".to_owned()]).unwrap();
+        let selected = select_tasks(&tasks, &["typical90_a..b01".to_owned()], false).unwrap();
 
         assert_eq!(labels(&selected), ["A77", "B01"]);
     }
@@ -376,7 +386,7 @@ mod tests {
             task("C", "abc300_c"),
         ];
         let requested = ["c".to_owned(), "a..b".to_owned(), "B".to_owned()];
-        let selected = select_tasks(&tasks, &requested).unwrap();
+        let selected = select_tasks(&tasks, &requested, false).unwrap();
 
         assert_eq!(labels(&selected), ["A", "B", "C"]);
     }
@@ -384,7 +394,7 @@ mod tests {
     #[test]
     fn rejects_reversed_range() {
         let tasks = numbered_tasks(5);
-        let error = select_tasks(&tasks, &["a03..a01".to_owned()]).unwrap_err();
+        let error = select_tasks(&tasks, &["a03..a01".to_owned()], false).unwrap_err();
 
         assert_eq!(error.to_string(), "範囲の開始と終了が逆です: a03..a01");
     }
@@ -392,7 +402,7 @@ mod tests {
     #[test]
     fn rejects_range_with_unknown_endpoint() {
         let tasks = numbered_tasks(3);
-        let error = select_tasks(&tasks, &["a01..zz9".to_owned()]).unwrap_err();
+        let error = select_tasks(&tasks, &["a01..zz9".to_owned()], false).unwrap_err();
 
         assert!(
             error
@@ -404,16 +414,32 @@ mod tests {
     #[test]
     fn rejects_empty_range_endpoint() {
         let tasks = numbered_tasks(3);
-        let error = select_tasks(&tasks, ["..".to_owned()].as_slice()).unwrap_err();
+        let error = select_tasks(&tasks, ["..".to_owned()].as_slice(), false).unwrap_err();
 
         assert_eq!(error.to_string(), "問題の指定を空にはできません");
+    }
+
+    #[test]
+    fn requires_explicit_selection_for_large_contests() {
+        let tasks = numbered_tasks(MAX_IMPLICIT_TASKS + 1);
+
+        let error = select_tasks(&tasks, &[], false).unwrap_err();
+        assert!(error.to_string().contains("--all"));
+        assert_eq!(select_tasks(&tasks, &[], true).unwrap().len(), tasks.len());
+    }
+
+    #[test]
+    fn keeps_creating_every_task_for_small_contests() {
+        let tasks = numbered_tasks(MAX_IMPLICIT_TASKS);
+
+        assert_eq!(select_tasks(&tasks, &[], false).unwrap().len(), tasks.len());
     }
 
     #[test]
     fn truncates_available_labels_in_error() {
         let tasks = numbered_tasks(MAX_LISTED_LABELS + 10);
 
-        let message = select_tasks(&tasks, &["zz9".to_owned()])
+        let message = select_tasks(&tasks, &["zz9".to_owned()], false)
             .unwrap_err()
             .to_string();
 

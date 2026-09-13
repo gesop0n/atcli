@@ -46,12 +46,15 @@ enum Command {
 struct NewArgs {
     /// `AtCoder` のコンテスト ID（例: abc300）
     contest: String,
-    /// 作成する問題（例: a c ex、省略時は全問題）
+    /// 作成する問題（例: a c ex、範囲指定は a01..a05、省略時は全問題）
     #[arg(value_name = "PROBLEM")]
     problems: Vec<String>,
     /// 作成先の日付（省略時はローカルの今日、形式: YYYY-MM-DD）
     #[arg(long)]
     date: Option<String>,
+    /// 問題を指定せずに全問題を作成する（問題数が多いコンテストで必要）
+    #[arg(long, conflicts_with = "problems")]
+    all: bool,
 }
 
 #[derive(Debug, Args)]
@@ -149,6 +152,7 @@ fn run_repository_command(command: Command) -> Result<()> {
             &args.contest,
             &args.problems,
             args.date.as_deref(),
+            args.all,
         ),
         Command::Fetch(args) => {
             let problem_dir = repository.find_problem_for(
