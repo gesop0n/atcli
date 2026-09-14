@@ -1,4 +1,5 @@
 mod atcoder;
+mod commit_cmd;
 mod config;
 mod fetch_cmd;
 mod login_cmd;
@@ -32,6 +33,8 @@ enum Command {
     Fetch(ProblemPathArgs),
     /// C++ 解答をビルドしてローカルテストする
     Test(TestArgs),
+    /// 取り組みと対応する問題データを Git にコミットする
+    Commit(CommitArgs),
     /// リポジトリ内のディレクトリパスを表示する
     Path(PathArgs),
     /// `AtCoder` にログインしてセッションを保存する
@@ -78,6 +81,19 @@ struct TestArgs {
     /// キャッシュを使わず強制的に再ビルドする
     #[arg(long)]
     rebuild: bool,
+}
+
+#[derive(Debug, Args)]
+struct CommitArgs {
+    /// 取り組みディレクトリまたはその子ディレクトリ
+    #[arg(default_value = ".")]
+    path: PathBuf,
+    /// 自動生成する代わりに使用するコミットメッセージ
+    #[arg(short, long)]
+    message: Option<String>,
+    /// コミットせず、メッセージと対象の変更を表示する
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Debug, Args)]
@@ -176,6 +192,13 @@ fn run_repository_command(command: Command) -> Result<()> {
             )?
             .require_success()
             .map(|_| ())
+        }
+        Command::Commit(args) => {
+            let attempt = repository.find_attempt(
+                &current_dir.join(args.path),
+                &config.repository.problems_dir,
+            )?;
+            commit_cmd::run(&repository, &attempt, args.message.as_deref(), args.dry_run)
         }
         Command::Path(args) => match args.target {
             PathTarget::Root => {
