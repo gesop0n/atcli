@@ -2,6 +2,7 @@ mod atcoder;
 mod commit_cmd;
 mod config;
 mod fetch_cmd;
+mod init_cmd;
 mod login_cmd;
 mod model;
 mod new_cmd;
@@ -37,6 +38,8 @@ enum Command {
     Commit(CommitArgs),
     /// リポジトリ内のディレクトリパスを表示する
     Path(PathArgs),
+    /// shell 統合用の関数を出力する
+    Init(InitArgs),
     /// `AtCoder` にログインしてセッションを保存する
     Login(LoginArgs),
     /// 保存したログインセッションを削除する
@@ -125,6 +128,13 @@ enum PathTarget {
 }
 
 #[derive(Debug, Args)]
+struct InitArgs {
+    /// 対象の shell
+    #[arg(value_enum)]
+    shell: init_cmd::Shell,
+}
+
+#[derive(Debug, Args)]
 struct LoginArgs {
     /// ブラウザの `REVEL_SESSION` を非表示入力する
     #[arg(long)]
@@ -162,6 +172,11 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Login(args) => login_cmd::login(args.session),
         Command::Logout => login_cmd::logout(),
+        // shell 起動時にも呼べるよう、リポジトリ探索より前に処理する。
+        Command::Init(args) => {
+            init_cmd::run(args.shell);
+            Ok(())
+        }
         command => run_repository_command(command),
     }
 }
@@ -241,7 +256,9 @@ fn run_repository_command(command: Command) -> Result<()> {
                 },
             )
         }
-        Command::Login(_) | Command::Logout => unreachable!("handled before repository discovery"),
+        Command::Login(_) | Command::Logout | Command::Init(_) => {
+            unreachable!("handled before repository discovery")
+        }
     }
 }
 
