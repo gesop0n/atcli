@@ -112,6 +112,16 @@ enum PathTarget {
         #[arg(long)]
         date: Option<String>,
     },
+    /// コンテスト（または問題）の取り組みディレクトリ
+    Attempt {
+        /// `AtCoder` のコンテスト ID（例: abc300）
+        contest: String,
+        /// 問題のラベル（例: b、省略時はコンテストディレクトリ）
+        problem: Option<String>,
+        /// 表示する日付（省略時は今日、無ければ最新の該当日）
+        #[arg(long)]
+        date: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -243,5 +253,16 @@ fn resolve_path_target(
     match target {
         PathTarget::Root => Ok(path_cmd::root(repository)),
         PathTarget::Today { date } => path_cmd::today(repository, config, date.as_deref()),
+        PathTarget::Attempt {
+            contest,
+            problem,
+            date,
+        } => path_cmd::attempt(
+            repository,
+            config,
+            &contest,
+            problem.as_deref(),
+            date.as_deref(),
+        ),
     }
 }
