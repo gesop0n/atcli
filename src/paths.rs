@@ -15,6 +15,21 @@ pub struct Attempt {
     pub problem_dir: PathBuf,
 }
 
+/// コンテスト ID や問題ラベルを、ディレクトリ名として安全な形へ正規化する。
+///
+/// 安全にできない場合は `None` を返し、呼び出し側が文脈に応じた文言を付ける。
+pub fn normalize_directory_component(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty()
+        || !normalized
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return None;
+    }
+    Some(normalized)
+}
+
 impl Repository {
     pub fn discover(start: &Path) -> Result<Self> {
         let mut current = start

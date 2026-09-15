@@ -200,13 +200,13 @@ fn run_repository_command(command: Command) -> Result<()> {
             )?;
             commit_cmd::run(&repository, &attempt, args.message.as_deref(), args.dry_run)
         }
-        Command::Path(args) => match args.target {
-            PathTarget::Root => {
-                path_cmd::root(&repository);
-                Ok(())
-            }
-            PathTarget::Today { date } => path_cmd::today(&repository, &config, date.as_deref()),
-        },
+        Command::Path(args) => {
+            println!(
+                "{}",
+                resolve_path_target(&repository, &config, args.target)?.display()
+            );
+            Ok(())
+        }
         Command::Submit(args) => {
             let attempt = repository.find_attempt(
                 &current_dir.join(args.path),
@@ -232,5 +232,16 @@ fn run_repository_command(command: Command) -> Result<()> {
             )
         }
         Command::Login(_) | Command::Logout => unreachable!("handled before repository discovery"),
+    }
+}
+
+fn resolve_path_target(
+    repository: &Repository,
+    config: &Config,
+    target: PathTarget,
+) -> Result<PathBuf> {
+    match target {
+        PathTarget::Root => Ok(path_cmd::root(repository)),
+        PathTarget::Today { date } => path_cmd::today(repository, config, date.as_deref()),
     }
 }

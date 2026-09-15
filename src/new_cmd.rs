@@ -13,7 +13,7 @@ use crate::{
     atcoder::{AtCoderClient, replace_samples},
     config::Config,
     model::{AttemptMeta, ContestTask, ProblemMeta},
-    paths::Repository,
+    paths::{Repository, normalize_directory_component},
 };
 
 /// 問題指定を省略して全問題を作成できる上限。`ABC` などの通常コンテストはいずれも下回る。
@@ -223,15 +223,8 @@ fn available_labels(tasks: &[ContestTask]) -> String {
 }
 
 fn normalize_contest_id(value: &str) -> Result<String> {
-    let normalized = value.trim().to_ascii_lowercase();
-    if normalized.is_empty()
-        || !normalized
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-    {
-        bail!("不正なコンテスト ID です: {value}");
-    }
-    Ok(normalized)
+    normalize_directory_component(value)
+        .with_context(|| format!("不正なコンテスト ID です: {value}"))
 }
 
 fn parse_date(value: &str) -> Result<NaiveDate> {
@@ -240,28 +233,17 @@ fn parse_date(value: &str) -> Result<NaiveDate> {
 }
 
 fn task_directory_name(label: &str, task_id: &str) -> Result<String> {
-    let label = label.trim().to_ascii_lowercase();
-    if !label.is_empty()
-        && label
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-    {
-        return Ok(label);
+    if let Some(name) = normalize_directory_component(label) {
+        return Ok(name);
     }
 
-    let fallback = task_id
-        .rsplit('_')
-        .next()
-        .unwrap_or(task_id)
-        .to_ascii_lowercase();
-    if fallback.is_empty()
-        || !fallback
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-    {
-        bail!("問題ラベルから安全なディレクトリ名を作れません: {label}");
-    }
-    Ok(fallback)
+    let fallback = task_id.rsplit('_').next().unwrap_or(task_id);
+    normalize_directory_component(fallback).with_context(|| {
+        format!(
+            "問題ラベルから安全なディレクトリ名を作れません: {}",
+            label.trim().to_ascii_lowercase()
+        )
+    })
 }
 
 #[cfg(test)]
