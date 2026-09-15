@@ -63,6 +63,9 @@ struct NewArgs {
     /// 問題を指定せずに全問題を作成する（問題数が多いコンテストで必要）
     #[arg(long, conflicts_with = "problems")]
     all: bool,
+    /// 作成後にコンテストディレクトリへ移動する（shell 統合が必要）
+    #[arg(long)]
+    cd: bool,
 }
 
 #[derive(Debug, Args)]
@@ -201,14 +204,7 @@ fn run_repository_command(command: Command) -> Result<()> {
     let config = Config::load(&repository)?;
 
     match command {
-        Command::New(args) => new_cmd::run(
-            &repository,
-            &config,
-            &args.contest,
-            &args.problems,
-            args.date.as_deref(),
-            args.all,
-        ),
+        Command::New(args) => run_new(&repository, &config, &args),
         Command::Fetch(args) => {
             let problem_dir = repository.find_problem_for(
                 &current_dir.join(args.path),
@@ -280,6 +276,26 @@ fn run_repository_command(command: Command) -> Result<()> {
             unreachable!("handled before repository discovery")
         }
     }
+}
+
+/// `--cd` のときだけ、移動先を stdout へ 1 行で出す。
+///
+/// 進捗表示は `new_cmd` 側で stderr へ回るため、stdout はパス専用になる。
+fn run_new(repository: &Repository, config: &Config, args: &NewArgs) -> Result<()> {
+    let destination = new_cmd::run(
+        repository,
+        config,
+        &args.contest,
+        &args.problems,
+        args.date.as_deref(),
+        args.all,
+        args.cd,
+    )?;
+    if args.cd {
+        init_cmd::warn_unless_integrated("--cd");
+        println!("{}", destination.display());
+    }
+    Ok(())
 }
 
 fn resolve_path_target(

@@ -21,6 +21,10 @@ const MAX_IMPLICIT_TASKS: usize = 20;
 /// エラー文に並べる選択可能なラベルの上限。
 const MAX_LISTED_LABELS: usize = 20;
 
+/// 作成したコンテストディレクトリを返す。
+///
+/// `quiet` を立てると進捗表示を stderr へ回す。`--cd` のとき stdout を移動先のパス専用にして、
+/// shell 側が `$( )` でそのまま受け取れるようにするため。
 pub fn run(
     repository: &Repository,
     config: &Config,
@@ -28,7 +32,8 @@ pub fn run(
     requested_problems: &[String],
     requested_date: Option<&str>,
     all: bool,
-) -> Result<()> {
+    quiet: bool,
+) -> Result<PathBuf> {
     let contest = normalize_contest_id(contest)?;
     let date = requested_date
         .map(parse_date)
@@ -46,7 +51,7 @@ pub fn run(
         .with_context(|| format!("C++ テンプレートを読めません: {}", template_path.display()))?;
 
     let client = AtCoderClient::new()?;
-    println!("Fetching {contest} task list...");
+    report(quiet, &format!("Fetching {contest} task list..."));
     let tasks = client.contest_tasks(&contest)?;
     let tasks = select_tasks(&tasks, requested_problems, all)?;
 
@@ -104,21 +109,32 @@ pub fn run(
                 .with_context(|| format!("テンプレートを書き込めません: {}", main_cpp.display()))?;
         }
 
-        println!(
-            "  {:>3}  {} ({} samples{}{})",
-            task.label,
-            attempt_dir.display(),
-            sample_count,
-            if interactive { ", interactive" } else { "" },
-            if reused { ", reused problem data" } else { "" }
+        report(
+            quiet,
+            &format!(
+                "  {:>3}  {} ({} samples{}{})",
+                task.label,
+                attempt_dir.display(),
+                sample_count,
+                if interactive { ", interactive" } else { "" },
+                if reused { ", reused problem data" } else { "" }
+            ),
         );
         if index + 1 != tasks.len() {
             thread::sleep(Duration::from_millis(200));
         }
     }
 
-    println!("Created {}", destination.display());
-    Ok(())
+    report(quiet, &format!("Created {}", destination.display()));
+    Ok(destination)
+}
+
+fn report(quiet: bool, line: &str) {
+    if quiet {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
 }
 
 fn write_attempt_meta(attempt_dir: &Path, expected: &AttemptMeta) -> Result<()> {
