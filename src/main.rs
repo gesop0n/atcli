@@ -38,6 +38,8 @@ enum Command {
     Commit(CommitArgs),
     /// リポジトリ内のディレクトリパスを表示する
     Path(PathArgs),
+    /// 取り組みディレクトリへ移動する（shell 統合が必要）
+    Cd(CdArgs),
     /// shell 統合用の関数を出力する
     Init(InitArgs),
     /// `AtCoder` にログインしてセッションを保存する
@@ -125,6 +127,18 @@ enum PathTarget {
         #[arg(long)]
         date: Option<String>,
     },
+}
+
+#[derive(Debug, Args)]
+struct CdArgs {
+    /// 移動先（`root`、`today`、またはコンテスト ID。省略時は today）
+    #[arg(value_name = "TARGET")]
+    target: Option<String>,
+    /// 問題のラベル（例: b。TARGET にコンテスト ID を指定したときのみ）
+    problem: Option<String>,
+    /// 対象の日付（省略時は今日、無ければ最新の該当日、形式: YYYY-MM-DD）
+    #[arg(long)]
+    date: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -232,6 +246,12 @@ fn run_repository_command(command: Command) -> Result<()> {
             );
             Ok(())
         }
+        Command::Cd(args) => {
+            let dir = resolve_cd_target(&repository, &config, &args)?;
+            init_cmd::warn_unless_integrated("atcli cd");
+            println!("{}", dir.display());
+            Ok(())
+        }
         Command::Submit(args) => {
             let attempt = repository.find_attempt(
                 &current_dir.join(args.path),
@@ -280,6 +300,35 @@ fn resolve_path_target(
             &contest,
             problem.as_deref(),
             date.as_deref(),
+        ),
+    }
+}
+
+/// `atcd` 由来の緩い引数の取り方をそのまま引き継ぐ。
+///
+/// `root` と `today` を予約語として扱うが、どちらも実在の `AtCoder` コンテスト ID とは衝突しない。
+fn resolve_cd_target(repository: &Repository, config: &Config, args: &CdArgs) -> Result<PathBuf> {
+    match args.target.as_deref() {
+        Some("root") => {
+            if args.problem.is_some() || args.date.is_some() {
+                anyhow::bail!("root には問題や日付を指定できません");
+            }
+            Ok(path_cmd::root(repository))
+        }
+        None | Some("today") => {
+            if let Some(problem) = &args.problem {
+                anyhow::bail!(
+                    "問題を指定するときはコンテスト ID も指定してください（例: atcli cd abc300 {problem}）"
+                );
+            }
+            path_cmd::today(repository, config, args.date.as_deref())
+        }
+        Some(contest) => path_cmd::attempt(
+            repository,
+            config,
+            contest,
+            args.problem.as_deref(),
+            args.date.as_deref(),
         ),
     }
 }
