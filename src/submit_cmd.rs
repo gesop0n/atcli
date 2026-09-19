@@ -183,7 +183,6 @@ fn watch_submission(
     previous_id: Option<u64>,
 ) -> Result<()> {
     let interval = Duration::from_millis(config.submit.poll_interval_ms);
-    let mut last_status = None;
     loop {
         thread::sleep(interval);
         let Some(submission) = client.latest_submission(&meta.contest, &meta.task_id)? else {
@@ -192,28 +191,40 @@ fn watch_submission(
         if previous_id.is_some_and(|id| submission.id == id) {
             continue;
         }
-        if last_status.as_deref() != Some(submission.result.as_str()) {
-            println!(
-                "{}  {}  {}",
-                submission.result, submission.language, submission.url
-            );
-            last_status = Some(submission.result.clone());
-        }
         if submission.is_finished() {
-            if submission.result == "AC" {
-                println!("{} {}", "AC".green().bold(), submission.url);
-                return Ok(());
-            }
-            bail!("判定結果: {} ({})", submission.result, submission.url);
+            print_verdict(&submission.result, &submission.url);
+            return Ok(());
         }
     }
+}
+
+fn print_verdict(result: &str, url: &str) {
+    let kind = verdict_token(result).to_ascii_uppercase();
+    match kind.as_str() {
+        "AC" => println!("{} {url}", result.green().bold()),
+        "CE" => println!("{} {url}", result.yellow().bold()),
+        _ => println!("{} {url}", result.red().bold()),
+    }
+}
+
+fn verdict_token(result: &str) -> &str {
+    const VERDICTS: &[&str] = &["AC", "WA", "TLE", "MLE", "RE", "CE", "QLE", "OLE", "IE"];
+    result
+        .split_whitespace()
+        .rev()
+        .find(|token| {
+            VERDICTS
+                .iter()
+                .any(|verdict| token.eq_ignore_ascii_case(verdict))
+        })
+        .unwrap_or(result.trim())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::atcoder::Language;
 
-    use super::resolve_language;
+    use super::{resolve_language, verdict_token};
 
     fn language(id: &str, name: &str) -> Language {
         Language {
@@ -244,5 +255,13 @@ mod tests {
         assert_eq!(resolve_language(&languages, "Python").unwrap().id, "5078");
         assert!(resolve_language(&languages, "C++").is_err());
         assert!(resolve_language(&languages, "Rust").is_err());
+    }
+
+    #[test]
+    fn extracts_verdict_from_progress_prefix() {
+        assert_eq!(verdict_token("AC"), "AC");
+        assert_eq!(verdict_token("6/14 TLE"), "TLE");
+        assert_eq!(verdict_token("WA"), "WA");
+        assert_eq!(verdict_token("CE"), "CE");
     }
 }

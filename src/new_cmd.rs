@@ -50,7 +50,7 @@ pub fn run(
     let template = fs::read_to_string(&template_path)
         .with_context(|| format!("C++ テンプレートを読めません: {}", template_path.display()))?;
 
-    let client = AtCoderClient::new()?;
+    let client = AtCoderClient::with_saved_session()?;
     report(quiet, &format!("Fetching {contest} task list..."));
     let tasks = client.contest_tasks(&contest)?;
     let tasks = select_tasks(&tasks, requested_problems, all)?;

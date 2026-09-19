@@ -18,7 +18,7 @@ use scraper::{ElementRef, Html, Selector};
 
 use crate::{
     model::{ContestTask, Sample, TaskPage},
-    session::Session,
+    session::{Session, SessionStore},
 };
 
 const BASE_URL: &str = "https://atcoder.jp";
@@ -49,12 +49,7 @@ pub struct Submission {
 
 impl Submission {
     pub fn is_finished(&self) -> bool {
-        let status = self.result.trim().to_ascii_uppercase();
-        !status.is_empty()
-            && status != "WJ"
-            && status != "WR"
-            && !status.contains("JUDGING")
-            && !status.contains("WAITING")
+        !is_pending_result(&self.result)
     }
 }
 
@@ -65,6 +60,17 @@ impl AtCoderClient {
 
     pub fn with_session(session: &Session) -> Result<Self> {
         Self::build(Some(session))
+    }
+
+    /// 保存済みセッションがあればそれを使い、なければ未ログインのまま接続する。
+    ///
+    /// 開催中コンテストの問題一覧はログイン（と参加登録）が必要。終了済みの公開コンテストは
+    /// 未ログインでも取得できる。
+    pub fn with_saved_session() -> Result<Self> {
+        match SessionStore::discover()?.load()? {
+            Some(session) => Self::with_session(&session),
+            None => Self::new(),
+        }
     }
 
     fn build(session: Option<&Session>) -> Result<Self> {
@@ -147,7 +153,7 @@ impl AtCoderClient {
 
     pub fn submit_page(&self, contest: &str, task_id: &str) -> Result<SubmitPage> {
         let url = format!("{BASE_URL}/contests/{contest}/submit?lang=en");
-        let html = self.authenticated_get(&url)?;
+        let html = self.get(&url)?;
         parse_submit_page(&html, task_id)
     }
 
@@ -208,34 +214,69 @@ impl AtCoderClient {
     }
 
     fn get(&self, url: &str) -> Result<String> {
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .with_context(|| format!("AtCoder への接続に失敗しました: {url}"))?
-            .error_for_status()
-            .with_context(|| format!("AtCoder がエラーを返しました: {url}"))?;
-        response
-            .text()
-            .with_context(|| format!("AtCoder のレスポンスを読めません: {url}"))
+        read_body(url, self.send_get(url)?)
     }
 
-    fn authenticated_get(&self, url: &str) -> Result<String> {
-        let response = self
-            .client
+    fn send_get(&self, url: &str) -> Result<Response> {
+        self.client
             .get(url)
             .send()
-            .with_context(|| format!("AtCoder への接続に失敗しました: {url}"))?;
-        if is_login_redirect(&response) {
-            bail!("AtCoder のセッションが無効です。`atcli login` を実行してください");
-        }
-        let response = response
-            .error_for_status()
-            .with_context(|| format!("AtCoder がエラーを返しました: {url}"))?;
-        response
-            .text()
-            .with_context(|| format!("AtCoder のレスポンスを読めません: {url}"))
+            .with_context(|| format!("AtCoder への接続に失敗しました: {url}"))
     }
+}
+
+fn read_body(url: &str, response: Response) -> Result<String> {
+    if is_login_redirect(&response) {
+        bail!("AtCoder のセッションが無効です。`atcli login` を実行してください");
+    }
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        bail!("{}", not_found_message(url));
+    }
+    let response = response
+        .error_for_status()
+        .with_context(|| format!("AtCoder がエラーを返しました: {url}"))?;
+    response
+        .text()
+        .with_context(|| format!("AtCoder のレスポンスを読めません: {url}"))
+}
+
+fn is_pending_result(result: &str) -> bool {
+    let status = result.trim().to_ascii_uppercase();
+    status.is_empty()
+        || status == "WJ"
+        || status == "WR"
+        || status.contains("JUDGING")
+        || status.contains("WAITING")
+        || is_case_progress(&status)
+}
+
+// 判定中は `1/14` のように消化ケース数が出る。これは最終結果ではない。
+fn is_case_progress(status: &str) -> bool {
+    let compact = status
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect::<String>();
+    let Some((done, total)) = compact.split_once('/') else {
+        return false;
+    };
+    !done.is_empty()
+        && !total.is_empty()
+        && done.chars().all(|character| character.is_ascii_digit())
+        && total.chars().all(|character| character.is_ascii_digit())
+}
+
+fn not_found_message(url: &str) -> String {
+    if is_contest_task_url(url) {
+        format!(
+            "問題ページが見つかりません: {url}\n開催中のコンテストではログインと参加登録が必要です。`atcli login` を実行してください"
+        )
+    } else {
+        format!("AtCoder がエラーを返しました: {url}")
+    }
+}
+
+fn is_contest_task_url(url: &str) -> bool {
+    url.contains("/contests/") && url.contains("/tasks")
 }
 
 fn is_login_redirect(response: &Response) -> bool {
@@ -604,9 +645,24 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        parse_contest_tasks, parse_csrf_token, parse_latest_submission, parse_submit_page,
-        parse_task_page, replace_samples,
+        Submission, is_contest_task_url, not_found_message, parse_contest_tasks, parse_csrf_token,
+        parse_latest_submission, parse_submit_page, parse_task_page, replace_samples,
     };
+
+    #[test]
+    fn explains_task_404_as_login_or_registration() {
+        let message = not_found_message("https://atcoder.jp/contests/abc476/tasks?lang=en");
+        assert!(message.contains("ログインと参加登録"));
+        assert!(message.contains("`atcli login`"));
+        assert!(is_contest_task_url(
+            "https://atcoder.jp/contests/abc476/tasks/abc476_a?lang=en"
+        ));
+        assert!(!is_contest_task_url("https://atcoder.jp/login"));
+        assert_eq!(
+            not_found_message("https://atcoder.jp/login"),
+            "AtCoder がエラーを返しました: https://atcoder.jp/login"
+        );
+    }
 
     #[test]
     fn parses_contest_task_rows_once() {
@@ -784,5 +840,48 @@ mod tests {
                 .unwrap()
                 .is_finished()
         );
+    }
+
+    fn submission_with_result(result: &str) -> Submission {
+        Submission {
+            id: 1,
+            url: String::new(),
+            language: String::new(),
+            result: result.to_owned(),
+        }
+    }
+
+    #[test]
+    fn treats_case_progress_as_unfinished() {
+        for result in ["WJ", "WR", "Judging", "1/14", "14/14", "1 / 14", ""] {
+            assert!(
+                !submission_with_result(result).is_finished(),
+                "{result} should still be pending"
+            );
+        }
+        for result in ["AC", "WA", "TLE", "MLE", "RE", "CE", "6/14 TLE"] {
+            assert!(
+                submission_with_result(result).is_finished(),
+                "{result} should be finished"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_in_progress_case_count() {
+        let html = r#"
+          <table><tbody>
+            <tr>
+              <td><a href="/contests/abc476/submissions/79363188">2026-09-19</a></td>
+              <td><a href="/contests/abc476/tasks/abc476_b">B</a></td>
+              <td>user</td><td>C++23 (GCC 15.2.0)</td><td>0</td><td>100 Byte</td>
+              <td><span class="label label-warning">1/14</span></td>
+            </tr>
+          </tbody></table>
+        "#;
+
+        let submission = parse_latest_submission(html, "abc476", "abc476_b").unwrap();
+        assert_eq!(submission.result, "1/14");
+        assert!(!submission.is_finished());
     }
 }

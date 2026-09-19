@@ -9,7 +9,7 @@ use crate::{
 
 pub fn run(problem_dir: &Path) -> Result<()> {
     let mut meta = ProblemMeta::read(problem_dir)?;
-    let client = AtCoderClient::new()?;
+    let client = AtCoderClient::with_saved_session()?;
     println!("Fetching {}...", meta.url);
     let page = client.task_page(&meta.url)?;
     replace_samples(problem_dir, &page.samples)?;
