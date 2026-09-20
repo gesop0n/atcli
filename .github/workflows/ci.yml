@@ -27,17 +27,13 @@ jobs:
       # commit サブコマンドのテストは git を使う。コンパイラは呼ばない。
       - run: cargo test --workspace
 
+  # flake は配布経路そのもの（README の nix run）なので、壊れていないかを見る。
+  # magic-nix-cache は FlakeHub 移行で使えなくなり、post ステップが終わらないので使わない。
   nix:
-    strategy:
-      fail-fast: false
-      matrix:
-        # ubuntu-latest は x86_64-linux、macos-latest は aarch64-darwin。
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       # flake が「対応している」と主張する system すべてを評価する。他 system の
       # derivation はこのランナーではビルドできないので --no-build が要る。
