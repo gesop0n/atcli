@@ -28,11 +28,20 @@ jobs:
       - run: cargo test --workspace
 
   nix:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest は x86_64-linux、macos-latest は aarch64-darwin。
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      # --all-systems は評価のみの system も含める。flake が「対応している」と
-      # 主張する platform が実際に評価できるかを守る。
-      - run: nix flake check --all-systems
+
+      # flake が「対応している」と主張する system すべてを評価する。他 system の
+      # derivation はこのランナーではビルドできないので --no-build が要る。
+      - run: nix flake check --all-systems --no-build
+
+      # ランナー自身の system だけ、実際にビルドしてテストまで通す。
+      - run: nix flake check
