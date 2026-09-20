@@ -8,14 +8,17 @@ use std::{
 use anyhow::{Context, Result, bail};
 use owo_colors::OwoColorize;
 
-use crate::{
-    atcoder::{AtCoderClient, Language},
+use atcli_atcoder::{
+    client::{AtCoderClient, Language},
+    session::SessionStore,
+};
+use atcli_core::{
     config::Config,
     model::ProblemMeta,
     paths::{Attempt, Repository},
-    session::SessionStore,
-    test_cmd,
 };
+
+use crate::test_cmd;
 
 #[derive(Clone, Copy)]
 pub struct Options<'a> {
@@ -57,8 +60,9 @@ pub fn run(
                 "interactive task はローカル判定できません。確認済みなら `atcli submit --no-test` を指定してください"
             );
         }
-        let summary =
-            test_cmd::run(repository, config, attempt, true, None, false)?.require_success()?;
+        let summary = test_cmd::require_success(test_cmd::run(
+            repository, config, attempt, true, None, false,
+        )?)?;
         if summary.passed == 0 {
             bail!(
                 "期待出力付きのテストに合格していません。確認済みなら `atcli submit --no-test` を指定してください"
@@ -222,7 +226,7 @@ fn verdict_token(result: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use crate::atcoder::Language;
+    use atcli_atcoder::client::Language;
 
     use super::{resolve_language, verdict_token};
 

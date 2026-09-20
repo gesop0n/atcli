@@ -1,15 +1,23 @@
-[package]
-name = "atcli"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
-description = "A small local workflow tool for solving AtCoder problems"
 license = "MIT"
+repository = "https://github.com/gesop0n/atcli"
 
-[dependencies]
+[workspace.dependencies]
+atcli-atcoder = { path = "crates/atcli-atcoder", version = "0.1.0" }
+atcli-core = { path = "crates/atcli-core", version = "0.1.0" }
+atcli-judge = { path = "crates/atcli-judge", version = "0.1.0" }
+
 anyhow = "1.0"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
+dirs = "6.0"
 owo-colors = "4.2"
 reqwest = { version = "0.12", default-features = false, features = [
   "blocking",
@@ -19,21 +27,18 @@ reqwest = { version = "0.12", default-features = false, features = [
   "gzip",
   "rustls-tls",
 ] }
-dirs = "6.0"
 rpassword = "7.4"
 scraper = "0.24"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 similar = "2.7"
+tempfile = "3.20"
 toml = "0.8"
 wait-timeout = "0.2"
 
-[dev-dependencies]
-tempfile = "3.20"
-
-[lints.rust]
+[workspace.lints.rust]
 unsafe_code = "forbid"
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = "warn"
 pedantic = "warn"

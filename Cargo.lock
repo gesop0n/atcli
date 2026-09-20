@@ -105,18 +105,47 @@ name = "atcli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atcli-atcoder",
+ "atcli-core",
+ "atcli-judge",
  "chrono",
  "clap",
- "dirs",
  "owo-colors",
- "reqwest",
  "rpassword",
+ "similar",
+ "tempfile",
+]
+
+[[package]]
+name = "atcli-atcoder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "atcli-core",
+ "dirs",
+ "reqwest",
  "scraper",
  "serde",
  "serde_json",
- "similar",
+ "tempfile",
+]
+
+[[package]]
+name = "atcli-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "atcli-judge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tempfile",
  "wait-timeout",
 ]
 

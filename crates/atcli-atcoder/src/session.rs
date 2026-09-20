@@ -15,6 +15,12 @@ pub struct Session {
 }
 
 impl Session {
+    /// Wrap a `REVEL_SESSION` cookie value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the value contains characters that cannot appear
+    /// in a cookie.
     pub fn new(revel_session: &str) -> Result<Self> {
         let revel_session = revel_session.trim().to_owned();
         if revel_session.is_empty()
@@ -27,6 +33,8 @@ impl Session {
         Ok(Self { revel_session })
     }
 
+    /// The raw cookie value.
+    #[must_use]
     pub fn value(&self) -> &str {
         &self.revel_session
     }
@@ -38,6 +46,11 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// Locate the session file under the user's data directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the data directory cannot be determined.
     pub fn discover() -> Result<Self> {
         let path = match env::var_os(STATE_DIR_ENV) {
             Some(base) => PathBuf::from(base).join("atcli/session.json"),
@@ -53,10 +66,17 @@ impl SessionStore {
         Self { path }
     }
 
+    /// Where the session is stored.
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Read the saved session, or `None` when nothing is saved.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file exists but cannot be read or parsed.
     pub fn load(&self) -> Result<Option<Session>> {
         let source = match fs::read_to_string(&self.path) {
             Ok(source) => source,
@@ -71,6 +91,11 @@ impl SessionStore {
         Session::new(&session.revel_session).map(Some)
     }
 
+    /// Write the session, replacing anything saved before.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file cannot be written.
     pub fn save(&self, session: &Session) -> Result<()> {
         let parent = self
             .path
@@ -84,6 +109,11 @@ impl SessionStore {
         write_private_file(&self.path, format!("{source}\n").as_bytes())
     }
 
+    /// Delete the saved session. Returns whether a file was removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file exists but cannot be removed.
     pub fn remove(&self) -> Result<bool> {
         match fs::remove_file(&self.path) {
             Ok(()) => Ok(true),

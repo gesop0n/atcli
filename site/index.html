@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>atcli</title>
+<meta name="description" content="AtCoder の問題を解くための CLI。問題データの取得、ローカルテスト、提出、コミットを一本のワークフローにまとめる。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Dark Mode (OLED) + Minimalism & Swiss Style.
+   Dark is the base; light is opt-in through the user's system preference. */
+:root {
+  --bg: #0F172A;
+  --fg: #F8FAFC;
+  --card: #1B2336;
+  --muted: #272F42;
+  --muted-fg: #94A3B8;
+  --border: #334155;
+  --border-strong: #475569;
+  --accent: #22C55E;
+  --on-accent: #0F172A;
+
+  /* The terminal stays dark in both themes: that is what a terminal looks like. */
+  --term-bg: #0B0F17;
+  --term-fg: #D5DAE3;
+  --term-dim: #8B94A7;
+  --term-ok: #4ADE80;
+  --term-bad: #F87171;
+  --term-info: #67E8F9;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 48px;
+  --space-6: 64px;
+
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #FFFFFF;
+    --fg: #0F172A;
+    --card: #F8FAFC;
+    --muted: #F1F5F9;
+    --muted-fg: #475569;
+    --border: #E2E8F0;
+    --border-strong: #CBD5E1;
+    --accent: #15803D;
+    --on-accent: #FFFFFF;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #FFFFFF;
+  --fg: #0F172A;
+  --card: #F8FAFC;
+  --muted: #F1F5F9;
+  --muted-fg: #475569;
+  --border: #E2E8F0;
+  --border-strong: #CBD5E1;
+  --accent: #15803D;
+  --on-accent: #FFFFFF;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 var(--space-2); }
+
+a { color: inherit; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---------- hero ---------- */
+.hero { padding: var(--space-6) 0 var(--space-5); }
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(3rem, 13vw, 5.5rem);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  margin: 0 0 var(--space-3);
+}
+h1 .cursor {
+  display: inline-block;
+  width: 0.42em; height: 0.09em;
+  background: var(--accent);
+  vertical-align: baseline;
+  margin-left: 0.08em;
+}
+.lede {
+  font-size: clamp(1.05rem, 2.6vw, 1.3rem);
+  color: var(--muted-fg);
+  max-width: 34ch;
+  margin: 0 0 var(--space-5);
+}
+
+/* install command, the hero's single focus */
+.install {
+  display: flex; align-items: stretch;
+  border: 1px solid var(--border-strong);
+  background: var(--term-bg);
+  max-width: 640px;
+}
+.install code {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 0.85rem;
+  color: var(--term-fg);
+  padding: 14px var(--space-2);
+  overflow-x: auto; white-space: nowrap;
+}
+.install code .p { color: var(--term-dim); }
+.copy {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  border: 0; border-left: 1px solid var(--border-strong);
+  background: transparent; color: var(--term-dim);
+  font-family: var(--mono); font-size: 0.74rem;
+  padding: 0 var(--space-2); cursor: pointer;
+  transition: color 200ms ease, background 200ms ease;
+}
+.copy:hover { color: var(--term-ok); background: rgba(74, 222, 128, 0.08); }
+.copy[data-copied="true"] { color: var(--term-ok); }
+.copy svg { width: 14px; height: 14px; }
+
+.ctas { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-3); }
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 0.82rem; font-weight: 500;
+  padding: 11px 18px; min-height: 44px;
+  border: 1px solid var(--border-strong);
+  text-decoration: none; cursor: pointer;
+  transition: border-color 200ms ease, color 200ms ease, background 200ms ease;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+.btn.primary:hover { background: var(--accent); color: var(--on-accent); filter: brightness(1.1); }
+.btn svg { width: 15px; height: 15px; }
+
+/* ---------- sections ---------- */
+section { padding: var(--space-6) 0; border-top: 1px solid var(--border); }
+.label {
+  font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--muted-fg);
+  margin: 0 0 var(--space-3);
+}
+h2 {
+  font-size: clamp(1.4rem, 4vw, 1.9rem);
+  letter-spacing: -0.02em; font-weight: 600;
+  margin: 0 0 var(--space-2); max-width: 24ch;
+}
+p { margin: 0 0 var(--space-2); }
+.dim { color: var(--muted-fg); }
+.narrow { max-width: 62ch; }
+
+/* ---------- terminal ---------- */
+pre {
+  background: var(--term-bg); color: var(--term-fg);
+  border: 1px solid var(--border-strong);
+  padding: var(--space-3); margin: 0 0 var(--space-3);
+  overflow-x: auto;
+  font-family: var(--mono); font-size: 0.82rem; line-height: 1.75;
+}
+pre code { font-family: inherit; }
+.p { color: var(--term-dim); }
+.d { color: var(--term-dim); }
+.ok { color: var(--term-ok); font-weight: 700; }
+.no { color: var(--term-bad); font-weight: 700; }
+.in { color: var(--term-info); font-weight: 700; }
+
+/* ---------- grids ---------- */
+.bullets {
+  display: grid; gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  background: var(--border); border: 1px solid var(--border);
+}
+.bullets > div { background: var(--bg); padding: var(--space-3); }
+.bullets h3 {
+  font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
+  margin: 0 0 var(--space-1);
+}
+.bullets p { font-size: 0.9rem; color: var(--muted-fg); margin: 0; }
+
+ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+ol.steps li {
+  counter-increment: s; display: grid;
+  grid-template-columns: 2.4rem 1fr; gap: var(--space-2);
+  padding: var(--space-3) 0; border-bottom: 1px solid var(--border);
+}
+ol.steps li:first-child { border-top: 1px solid var(--border); }
+ol.steps li::before {
+  content: counter(s, decimal-leading-zero);
+  font-family: var(--mono); font-size: 0.78rem; color: var(--muted-fg);
+  padding-top: 0.3rem;
+}
+ol.steps code {
+  font-family: var(--mono); font-size: 0.92rem; font-weight: 500;
+  color: var(--accent);
+}
+ol.steps p { font-size: 0.92rem; color: var(--muted-fg); margin: var(--space-1) 0 0; }
+
+.crates { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.crate {
+  border: 1px solid var(--border); padding: var(--space-3);
+  text-decoration: none; display: block;
+  transition: border-color 200ms ease;
+}
+a.crate:hover { border-color: var(--accent); }
+.crate h3 { font-family: var(--mono); font-size: 0.9rem; margin: 0 0 var(--space-1); font-weight: 700; }
+a.crate h3 { color: var(--accent); }
+.crate p { font-size: 0.88rem; color: var(--muted-fg); margin: 0; }
+.crate .dep { font-family: var(--mono); font-size: 0.72rem; color: var(--muted-fg); margin-top: var(--space-1); }
+
+footer {
+  padding: var(--space-5) 0 var(--space-6);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 0.78rem; color: var(--muted-fg);
+}
+footer a { color: var(--muted-fg); }
+footer a:hover { color: var(--accent); }
+
+/* ---------- motion ---------- */
+.reveal { opacity: 0; transform: translateY(12px); }
+.reveal.shown { opacity: 1; transform: none; transition: opacity 350ms ease-out, transform 350ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>atcli<span class="cursor"></span></h1>
+    <p class="lede">AtCoder の問題を解くための CLI。取得からテスト、提出、コミットまでを一本のワークフローにまとめる。</p>
+
+    <div class="install">
+      <code id="install-cmd"><span class="p">$</span> nix run github:gesop0n/atcli -- --help</code>
+      <button class="copy" type="button" id="copy-btn" aria-label="インストールコマンドをコピーする">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="1"/>
+          <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
+        </svg>
+        <span id="copy-label">コピー</span>
+      </button>
+    </div>
+    <p aria-live="polite" class="visually-hidden" id="copy-status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></p>
+
+    <div class="ctas">
+      <a class="btn primary" href="https://github.com/gesop0n/atcli">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a class="btn" href="./doc/atcli_judge/index.html">
+        API ドキュメント
+      </a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="bullets reveal">
+      <div>
+        <h3>サニタイザ内蔵</h3>
+        <p>デバッグビルドは ASan / UBSan 付き。範囲外アクセスは WA になる前に捕まる。</p>
+      </div>
+      <div>
+        <h3>ビルドキャッシュ</h3>
+        <p>コンパイラの版・フラグ・依存ヘッダを指紋にする。ライブラリを直せば作り直す。</p>
+      </div>
+      <div>
+        <h3>提出まで一本</h3>
+        <p>サンプル取得、ローカル判定、提出、コミットが同じ CLI にある。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="label">診断</p>
+    <h2>落ちた場所が、行で出る</h2>
+    <p class="dim narrow">サニタイザが標準エラー出力に書いた位置をそのまま読む。黙ったまま落ちた場合だけ LLDB / GDB で失敗ケースを再実行する。</p>
+    <pre class="reveal"><code><span class="p">$</span> atcli test
+Built abc300_a [debug]
+<span class="no">RE</span>  sample-1             exit=signal: 6 (SIGABRT) (530.6 ms)
+<span class="d">source:</span>
+  attempts/abc300/a/main.cpp:8
+  8 |     for (int i = 0; i &lt;= n; ++i) s += a[i];
+<span class="d">stderr:</span>
+==22662==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000fc
+    #0 0x00010047caec in main main.cpp:8</code></pre>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="label">判定</p>
+    <h2>サンプルを回して、差分を見る</h2>
+    <p class="dim narrow">許容誤差を問題メタデータに書けば、数値トークンを絶対誤差と相対誤差の両方で比較する。<code>.out</code> のないケースは出力を表示するだけにとどめる。</p>
+    <pre class="reveal"><code><span class="p">$</span> atcli test
+Cached abc300_a [debug]
+<span class="ok">AC</span>  sample-1             (77.9 ms)
+<span class="no">WA</span>  sample-2             (75.6 ms)
+<span class="d">--- expected / +++ actual</span>
+<span class="no">-</span> <span class="no">9</span>
+<span class="ok">+</span> <span class="ok">0</span>
+<span class="in">RUN</span> hand-1               (81.2 ms; no .out)
+<span class="ok">1</span> passed, <span class="in">1</span> unchecked, <span class="no">1</span> failed</code></pre>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="label">ワークフロー</p>
+    <h2>4 つのコマンド</h2>
+    <ol class="steps">
+      <li><div>
+        <code>atcli new abc300 --cd</code>
+        <p>問題一覧とサンプルを取得し、テンプレートから取り組みディレクトリを作って移動する。</p>
+      </div></li>
+      <li><div>
+        <code>atcli test</code>
+        <p>サンプルでローカル判定する。変更がなければ再ビルドしない。</p>
+      </div></li>
+      <li><div>
+        <code>atcli submit</code>
+        <p>提出相当の最適化でテストしてから提出し、ジャッジの結果が出るまで追う。</p>
+      </div></li>
+      <li><div>
+        <code>atcli commit</code>
+        <p>その取り組みと参照先の問題データだけをステージしてコミットする。</p>
+      </div></li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="label">構成</p>
+    <h2>4 つのクレート</h2>
+    <p class="dim narrow"><code>atcli-judge</code> は何も表示せず、判定結果を値として返す。他のクレートにも依存しないので、単体でも使える。</p>
+    <div class="crates reveal">
+      <a class="crate" href="./doc/atcli_core/index.html">
+        <h3>atcli-core</h3>
+        <p>リポジトリの構造、設定、問題メタデータ。</p>
+      </a>
+      <a class="crate" href="./doc/atcli_atcoder/index.html">
+        <h3>atcli-atcoder</h3>
+        <p>ログイン、セッションの保存、ページの取得と解析。</p>
+      </a>
+      <a class="crate" href="./doc/atcli_judge/index.html">
+        <h3>atcli-judge</h3>
+        <p>コンパイル、実行、出力比較、停止位置の特定。</p>
+      </a>
+      <div class="crate">
+        <h3>atcli</h3>
+        <p>コマンドの組み立てと、端末への表示。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    MIT License · <a href="https://github.com/gesop0n/atcli">github.com/gesop0n/atcli</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var btn = document.getElementById('copy-btn');
+  var label = document.getElementById('copy-label');
+  var status = document.getElementById('copy-status');
+  var timer;
+  btn.addEventListener('click', function () {
+    var text = document.getElementById('install-cmd').textContent.replace(/^\s*\$\s*/, '');
+    navigator.clipboard.writeText(text).then(function () {
+      btn.dataset.copied = 'true';
+      label.textContent = 'コピーした';
+      status.textContent = 'インストールコマンドをコピーした';
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        delete btn.dataset.copied;
+        label.textContent = 'コピー';
+        status.textContent = '';
+      }, 2000);
+    });
+  });
+
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var targets = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    targets.forEach(function (el) { el.classList.add('shown'); });
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('shown');
+        io.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -10% 0px' });
+  targets.forEach(function (el) { io.observe(el); });
+})();
+</script>
+
+</body>
+</html>

@@ -9,8 +9,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Local, NaiveDate};
 
-use crate::{
-    atcoder::{AtCoderClient, replace_samples},
+use atcli_atcoder::client::{AtCoderClient, replace_samples};
+use atcli_core::{
     config::Config,
     model::{AttemptMeta, ContestTask, ProblemMeta},
     paths::{Repository, normalize_directory_component},
@@ -266,7 +266,7 @@ fn task_directory_name(label: &str, task_id: &str) -> Result<String> {
 mod tests {
     use tempfile::tempdir;
 
-    use crate::model::{AttemptMeta, ContestTask};
+    use atcli_core::model::{AttemptMeta, ContestTask};
 
     use super::{
         MAX_IMPLICIT_TASKS, MAX_LISTED_LABELS, normalize_contest_id, parse_date, select_tasks,

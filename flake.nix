@@ -17,7 +17,39 @@
       rust-overlay,
       ...
     }:
-    flake-utils.lib.eachDefaultSystem (
+    # overlay は system に依存しないので eachDefaultSystem の外に出す。
+    {
+      overlays.default = final: _prev: {
+        atcli = final.callPackage (
+          {
+            rustPlatform,
+            gitMinimal,
+            makeWrapper,
+            lib,
+          }:
+          rustPlatform.buildRustPackage {
+            pname = "atcli";
+            version = "0.1.0";
+            src = lib.cleanSource ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            cargoBuildFlags = [
+              "-p"
+              "atcli"
+            ];
+            nativeBuildInputs = [
+              gitMinimal
+              makeWrapper
+            ];
+            postInstall = ''
+              wrapProgram $out/bin/atcli \
+                --prefix PATH : ${lib.makeBinPath [ gitMinimal ]}
+            '';
+            meta.mainProgram = "atcli";
+          }
+        ) { };
+      };
+    }
+    // flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs {
@@ -34,6 +66,12 @@
           version = "0.1.0";
           src = pkgs.lib.cleanSource ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          # ワークスペースのうち配布するのは atcli だけ。
+          cargoBuildFlags = [
+            "-p"
+            "atcli"
+          ];
+          cargoTestFlags = [ "--workspace" ];
           # git は commit サブコマンドとそのテストで使う
           nativeBuildInputs = [
             pkgs.gitMinimal

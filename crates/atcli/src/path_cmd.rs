@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Local, NaiveDate};
 
-use crate::{
+use atcli_core::{
     config::Config,
     paths::{Repository, normalize_directory_component},
 };

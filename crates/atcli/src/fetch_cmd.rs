@@ -2,10 +2,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::{
-    atcoder::{AtCoderClient, replace_samples},
-    model::ProblemMeta,
-};
+use atcli_atcoder::client::{AtCoderClient, replace_samples};
+use atcli_core::model::ProblemMeta;
 
 pub fn run(problem_dir: &Path) -> Result<()> {
     let mut meta = ProblemMeta::read(problem_dir)?;

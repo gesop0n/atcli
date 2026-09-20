@@ -1,0 +1,54 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages へのデプロイに必要な権限。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 進行中のデプロイは中断せず、後続を待たせる。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust ツールチェーンを用意する
+        run: rustup toolchain install --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: rustdoc を生成する
+        run: cargo doc --no-deps --workspace
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: サイトを組み立てる
+        run: |
+          mkdir -p _site
+          cp -r site/. _site/
+          cp -r target/doc _site/doc
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

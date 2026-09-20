@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust ツールチェーンを用意する
+        run: |
+          rustup toolchain install --profile minimal --component rustfmt,clippy
+          rustup default "$(rustup toolchain list | head -1 | cut -d' ' -f1)"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # atcli test のテストは C++ コンパイラを呼ぶ。ubuntu-latest には g++ が入っている。
+      - run: cargo test --workspace
+
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix flake check --all-systems

@@ -5,8 +5,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-use crate::{
-    atcoder::AtCoderClient,
+use atcli_atcoder::{
+    client::AtCoderClient,
     session::{Session, SessionStore},
 };
 

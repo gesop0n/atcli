@@ -101,6 +101,12 @@ impl Default for SubmitConfig {
 }
 
 impl Config {
+    /// Read `atcli.toml` from the repository root, filling in defaults for
+    /// every key the file omits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file is missing or malformed.
     pub fn load(repository: &Repository) -> Result<Self> {
         let path = repository.root.join("atcli.toml");
         let source = fs::read_to_string(&path)

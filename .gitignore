@@ -2,3 +2,6 @@
 .DS_Store
 
 target/
+
+# GitHub Pages の組み立て先
+_site/

@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-use crate::{
+use atcli_core::{
     model::ProblemMeta,
     paths::{Attempt, Repository},
 };
@@ -203,7 +203,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use crate::{
+    use atcli_core::{
         model::{AttemptMeta, ProblemMeta},
         paths::{Attempt, Repository},
     };

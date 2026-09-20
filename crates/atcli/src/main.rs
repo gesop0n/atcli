@@ -1,14 +1,9 @@
-mod atcoder;
 mod commit_cmd;
-mod config;
 mod fetch_cmd;
 mod init_cmd;
 mod login_cmd;
-mod model;
 mod new_cmd;
 mod path_cmd;
-mod paths;
-mod session;
 mod submit_cmd;
 mod test_cmd;
 
@@ -17,7 +12,7 @@ use std::{env, path::PathBuf};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
-use crate::{config::Config, paths::Repository};
+use atcli_core::{config::Config, paths::Repository};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -217,16 +212,15 @@ fn run_repository_command(command: Command) -> Result<()> {
                 &current_dir.join(args.path),
                 &config.repository.problems_dir,
             )?;
-            test_cmd::run(
+            let summary = test_cmd::run(
                 &repository,
                 &config,
                 &attempt,
                 args.release,
                 args.case.as_deref(),
                 args.rebuild,
-            )?
-            .require_success()
-            .map(|_| ())
+            )?;
+            test_cmd::require_success(summary).map(|_| ())
         }
         Command::Commit(args) => {
             let attempt = repository.find_attempt(

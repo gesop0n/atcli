@@ -50,6 +50,11 @@ pub struct AttemptMeta {
 }
 
 impl AttemptMeta {
+    /// Read `attempt.toml` from an attempt directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file is missing or malformed.
     pub fn read(attempt_dir: &Path) -> Result<Self> {
         let path = attempt_dir.join("attempt.toml");
         let source = fs::read_to_string(&path)
@@ -58,6 +63,11 @@ impl AttemptMeta {
             .with_context(|| format!("取り組みメタデータの形式が不正です: {}", path.display()))
     }
 
+    /// Write `attempt.toml` into an attempt directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory is not writable.
     pub fn write(&self, attempt_dir: &Path) -> Result<()> {
         let path = attempt_dir.join("attempt.toml");
         let source = toml::to_string_pretty(self).context("取り組みメタデータを変換できません")?;
@@ -67,6 +77,11 @@ impl AttemptMeta {
 }
 
 impl ProblemMeta {
+    /// Read `meta.toml` from a problem directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file is missing or malformed.
     pub fn read(problem_dir: &Path) -> Result<Self> {
         let path = problem_dir.join("meta.toml");
         let source = fs::read_to_string(&path)
@@ -75,6 +90,11 @@ impl ProblemMeta {
             .with_context(|| format!("問題メタデータの形式が不正です: {}", path.display()))
     }
 
+    /// Write `meta.toml` into a problem directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory is not writable.
     pub fn write(&self, problem_dir: &Path) -> Result<()> {
         let path = problem_dir.join("meta.toml");
         let source = toml::to_string_pretty(self).context("問題メタデータを変換できません")?;

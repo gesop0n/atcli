@@ -1,0 +1,25 @@
+[package]
+name = "atcli"
+description = "A small local workflow tool for solving AtCoder problems"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atcli-atcoder.workspace = true
+atcli-core.workspace = true
+atcli-judge.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+owo-colors.workspace = true
+rpassword.workspace = true
+similar.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

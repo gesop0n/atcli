@@ -18,6 +18,7 @@ pub struct Attempt {
 /// コンテスト ID や問題ラベルを、ディレクトリ名として安全な形へ正規化する。
 ///
 /// 安全にできない場合は `None` を返し、呼び出し側が文脈に応じた文言を付ける。
+#[must_use]
 pub fn normalize_directory_component(value: &str) -> Option<String> {
     let normalized = value.trim().to_ascii_lowercase();
     if normalized.is_empty()
@@ -31,6 +32,11 @@ pub fn normalize_directory_component(value: &str) -> Option<String> {
 }
 
 impl Repository {
+    /// `start` から上へ辿り、`atcli.toml` を持つディレクトリをリポジトリとする。
+    ///
+    /// # Errors
+    ///
+    /// パスを解決できない場合と、`atcli.toml` が見つからない場合に返す。
     pub fn discover(start: &Path) -> Result<Self> {
         let mut current = start
             .canonicalize()
@@ -51,6 +57,11 @@ impl Repository {
         bail!("atcli.toml が見つかりません。AtCoder リポジトリ内で実行してください")
     }
 
+    /// `start` を含む取り組みディレクトリと、それが参照する問題ディレクトリを返す。
+    ///
+    /// # Errors
+    ///
+    /// `attempt.toml` が見つからない場合と、参照先の問題を解決できない場合に返す。
     pub fn find_attempt(&self, start: &Path, problems_location: &Path) -> Result<Attempt> {
         let attempt_dir = self.find_ancestor_with(start, "attempt.toml").with_context(|| {
             "attempt.toml が見つかりません。取り組みディレクトリ内で実行するか、取り組みディレクトリを指定してください"
@@ -63,6 +74,12 @@ impl Repository {
         })
     }
 
+    /// `start` に対応する問題ディレクトリを返す。取り組みディレクトリの外でも、
+    /// 問題ディレクトリ自体の中にいれば解決できる。
+    ///
+    /// # Errors
+    ///
+    /// 問題ディレクトリを特定できない場合に返す。
     pub fn find_problem_for(&self, start: &Path, problems_location: &Path) -> Result<PathBuf> {
         let mut current = start
             .canonicalize()

@@ -16,10 +16,9 @@ use reqwest::{
 };
 use scraper::{ElementRef, Html, Selector};
 
-use crate::{
-    model::{ContestTask, Sample, TaskPage},
-    session::{Session, SessionStore},
-};
+use atcli_core::model::{ContestTask, Sample, TaskPage};
+
+use crate::session::{Session, SessionStore};
 
 const BASE_URL: &str = "https://atcoder.jp";
 
@@ -48,16 +47,28 @@ pub struct Submission {
 }
 
 impl Submission {
+    /// Whether the judge has reached a final verdict.
+    #[must_use]
     pub fn is_finished(&self) -> bool {
         !is_pending_result(&self.result)
     }
 }
 
 impl AtCoderClient {
+    /// Build a client with no session, for pages that need no login.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP client cannot be built.
     pub fn new() -> Result<Self> {
         Self::build(None)
     }
 
+    /// Build a client that presents `session` on every request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP client cannot be built.
     pub fn with_session(session: &Session) -> Result<Self> {
         Self::build(Some(session))
     }
@@ -66,6 +77,11 @@ impl AtCoderClient {
     ///
     /// 開催中コンテストの問題一覧はログイン（と参加登録）が必要。終了済みの公開コンテストは
     /// 未ログインでも取得できる。
+    /// Build a client from the session saved on disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no session is saved or it cannot be read.
     pub fn with_saved_session() -> Result<Self> {
         match SessionStore::discover()?.load()? {
             Some(session) => Self::with_session(&session),
@@ -95,6 +111,12 @@ impl AtCoderClient {
         Ok(Self { client })
     }
 
+    /// Log in and return the session cookie `AtCoder` handed back.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the credentials are rejected, when `AtCoder` asks
+    /// for a browser challenge, or when the response cannot be parsed.
     pub fn login(&self, username: &str, password: &str) -> Result<Session> {
         let url = format!("{BASE_URL}/login?lang=en");
         let page = self.get(&url)?;
@@ -127,6 +149,11 @@ impl AtCoderClient {
         Ok(session)
     }
 
+    /// Check whether the current session is still logged in.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `AtCoder` cannot be reached.
     pub fn session_is_valid(&self) -> Result<bool> {
         let response = self
             .client
@@ -139,24 +166,46 @@ impl AtCoderClient {
         Ok(response.status().is_success())
     }
 
+    /// List the tasks of a contest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the contest page cannot be fetched or parsed.
     pub fn contest_tasks(&self, contest: &str) -> Result<Vec<ContestTask>> {
         let url = format!("{BASE_URL}/contests/{contest}/tasks?lang=en");
         let html = self.get(&url)?;
         parse_contest_tasks(&html, contest, &url)
     }
 
+    /// Fetch one task's samples, time limit and interactive flag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the task page cannot be fetched.
     pub fn task_page(&self, url: &str) -> Result<TaskPage> {
         let separator = if url.contains('?') { '&' } else { '?' };
         let html = self.get(&format!("{url}{separator}lang=en"))?;
         Ok(parse_task_page(&html))
     }
 
+    /// Fetch the submit form, which carries the CSRF token and the language
+    /// list for the task.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the page cannot be fetched or parsed.
     pub fn submit_page(&self, contest: &str, task_id: &str) -> Result<SubmitPage> {
         let url = format!("{BASE_URL}/contests/{contest}/submit?lang=en");
         let html = self.get(&url)?;
         parse_submit_page(&html, task_id)
     }
 
+    /// Submit a solution and return the submission `AtCoder` created.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the submission is rejected or the response
+    /// cannot be parsed.
     pub fn submit(
         &self,
         contest: &str,
@@ -193,6 +242,11 @@ impl AtCoderClient {
         bail!("AtCoder が提出を受け付けませんでした（{message}）");
     }
 
+    /// Read the most recent submission for a task, if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the submissions page cannot be fetched.
     pub fn latest_submission(&self, contest: &str, task_id: &str) -> Result<Option<Submission>> {
         let url = format!("{BASE_URL}/contests/{contest}/submissions/me?lang=en");
         let response = self
@@ -319,7 +373,7 @@ fn normalized_element_text(element: ElementRef<'_>) -> String {
         .join(" ")
 }
 
-pub fn parse_csrf_token(html: &str) -> Result<String> {
+pub(crate) fn parse_csrf_token(html: &str) -> Result<String> {
     let document = Html::parse_document(html);
     let input_selector = selector("input[name=\"csrf_token\"]");
     document
@@ -330,7 +384,7 @@ pub fn parse_csrf_token(html: &str) -> Result<String> {
         .context("AtCoder のページに csrf_token がありません")
 }
 
-pub fn parse_submit_page(html: &str, task_id: &str) -> Result<SubmitPage> {
+pub(crate) fn parse_submit_page(html: &str, task_id: &str) -> Result<SubmitPage> {
     let document = Html::parse_document(html);
     let csrf_token = parse_csrf_token(html)?;
     let targeted_selector = Selector::parse(&format!("[id=\"select-lang-{task_id}\"] option")).ok();
@@ -384,7 +438,11 @@ fn parse_alert_message(html: &str) -> Option<String> {
         .find(|message| !message.is_empty())
 }
 
-pub fn parse_latest_submission(html: &str, contest: &str, task_id: &str) -> Option<Submission> {
+pub(crate) fn parse_latest_submission(
+    html: &str,
+    contest: &str,
+    task_id: &str,
+) -> Option<Submission> {
     let document = Html::parse_document(html);
     let row_selector = selector("table tbody tr");
     let anchor_selector = selector("a[href]");
@@ -430,7 +488,11 @@ pub fn parse_latest_submission(html: &str, contest: &str, task_id: &str) -> Opti
     })
 }
 
-pub fn parse_contest_tasks(html: &str, contest: &str, page_url: &str) -> Result<Vec<ContestTask>> {
+pub(crate) fn parse_contest_tasks(
+    html: &str,
+    contest: &str,
+    page_url: &str,
+) -> Result<Vec<ContestTask>> {
     let document = Html::parse_document(html);
     let row_selector = selector("table tbody tr");
     let anchor_selector = selector("a");
@@ -473,7 +535,7 @@ pub fn parse_contest_tasks(html: &str, contest: &str, page_url: &str) -> Result<
     Ok(tasks)
 }
 
-pub fn parse_task_page(html: &str) -> TaskPage {
+pub(crate) fn parse_task_page(html: &str) -> TaskPage {
     let document = Html::parse_document(html);
     let samples = [
         "#task-statement .lang-en section",
@@ -598,6 +660,12 @@ fn decimal_seconds_to_milliseconds(value: &str) -> Option<u64> {
         .checked_add(milliseconds.parse::<u64>().unwrap_or(0))
 }
 
+/// Rewrite the `sample-*` cases under a problem's `tests` directory, leaving
+/// any hand-written cases in place.
+///
+/// # Errors
+///
+/// Returns an error when the directory cannot be read or written.
 pub fn replace_samples(problem_dir: &Path, samples: &[Sample]) -> Result<()> {
     let tests_dir = problem_dir.join("tests");
     fs::create_dir_all(&tests_dir).with_context(|| {

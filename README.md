@@ -230,11 +230,28 @@ poll_interval_ms = 2000
 
 `include_dirs` はリポジトリのルートからの相対パスで、`atcli test` のコンパイル時に `-I` として渡される。
 
+## 構成
+
+Cargo ワークスペースで、4 つのクレートに分かれている。
+
+| クレート | 役割 |
+| --- | --- |
+| `atcli-core` | リポジトリの構造、設定、問題メタデータ |
+| `atcli-atcoder` | ログイン、セッションの保存、ページの取得と解析 |
+| `atcli-judge` | コンパイル、実行、出力比較、停止位置の特定 |
+| `atcli` | コマンドの組み立てと、端末への表示 |
+
+`atcli-judge` は何も表示せず、判定結果を値として返す。他のクレートにも依存しないので、
+`atcli` の外でも「C++ をビルドしてテストケースで判定する」用途に使える。表示は `atcli` に集約している。
+
+API ドキュメントは <https://gesop0n.github.io/atcli/doc/atcli_judge/index.html> にある。
+
 ## 開発
 
 ```console
 $ nix develop
-$ cargo test
+$ cargo test --workspace
+$ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 devShell には Rust toolchain に加えて GCC が入る。`atcli test` が C++ コンパイラを呼ぶため、手元で動作確認するのに必要。
