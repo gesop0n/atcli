@@ -53,6 +53,8 @@ impl Default for CppConfig {
                 "-g3".to_owned(),
                 "-Wall".to_owned(),
                 "-Wextra".to_owned(),
+                "-fsanitize=address,undefined".to_owned(),
+                "-fno-sanitize-recover=all".to_owned(),
             ],
             release_flags: vec!["-O2".to_owned(), "-Wall".to_owned(), "-Wextra".to_owned()],
         }
@@ -64,6 +66,9 @@ impl Default for CppConfig {
 pub struct TestConfig {
     pub timeout_multiplier: f64,
     pub minimum_timeout_ms: u64,
+    /// Re-run a crashing debug build under LLDB/GDB when the fault location is
+    /// not already in its output.
+    pub crash_diagnostics: bool,
 }
 
 impl Default for TestConfig {
@@ -71,6 +76,7 @@ impl Default for TestConfig {
         Self {
             timeout_multiplier: 2.0,
             minimum_timeout_ms: 1_000,
+            crash_diagnostics: true,
         }
     }
 }

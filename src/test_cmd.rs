@@ -105,13 +105,10 @@ pub fn run(
                 execution.status,
                 execution.elapsed.as_secs_f64() * 1_000.0
             );
-            let source = attempt.dir.join("main.cpp");
-            if !release && execution.status.code().is_none() {
-                let location = find_source_location(&execution.stderr, &source)
-                    .or_else(|| crash_source_location(&binary, &case.input, &source, timeout));
-                if let Some(location) = location {
-                    print_source_location(repository, &source, location);
-                }
+            if !release {
+                report_crash_location(
+                    repository, config, attempt, &binary, case, &execution, timeout,
+                );
             }
             print_stderr(&execution.stderr);
             failed += 1;
@@ -552,6 +549,30 @@ fn print_stderr(stderr: &str) {
     }
 }
 
+fn report_crash_location(
+    repository: &Repository,
+    config: &Config,
+    attempt: &Attempt,
+    binary: &Path,
+    case: &TestCase,
+    execution: &Execution,
+    timeout: Duration,
+) {
+    let source = attempt.dir.join("main.cpp");
+    // Sanitizers name the faulting line on stderr, so look there first: it costs
+    // nothing and works however the process ended. Only a signal death that
+    // stayed silent is worth paying for a debugger re-run.
+    let location = find_source_location(&execution.stderr, &source).or_else(|| {
+        let silent_crash = execution.status.code().is_none() && config.test.crash_diagnostics;
+        silent_crash
+            .then(|| crash_source_location(binary, &case.input, &source, timeout))
+            .flatten()
+    });
+    if let Some(location) = location {
+        print_source_location(repository, &source, location);
+    }
+}
+
 fn find_source_location(output: &str, source: &Path) -> Option<SourceLocation> {
     let file_name = source.file_name()?.to_str()?;
     let marker = format!("{file_name}:");
@@ -784,6 +805,50 @@ mod tests {
             &fingerprint_file,
             "g++ -O0"
         ));
+    }
+
+    #[test]
+    fn extracts_source_location_from_sanitizer_reports() {
+        let source = PathBuf::from("/work/attempt/main.cpp");
+        let address = "    #0 0x000102ddca90 in main main.cpp:5\n";
+        let undefined = concat!(
+            "main.cpp:4:15: runtime error: signed integer overflow: ",
+            "2147483647 + 1 cannot be represented in type 'int'\n",
+        );
+
+        assert_eq!(
+            find_source_location(address, &source),
+            Some(SourceLocation {
+                line: 5,
+                column: None,
+            })
+        );
+        assert_eq!(
+            find_source_location(undefined, &source),
+            Some(SourceLocation {
+                line: 4,
+                column: Some(15),
+            })
+        );
+    }
+
+    #[test]
+    fn skips_sanitizer_frames_outside_the_solution() {
+        let source = PathBuf::from("/work/attempt/main.cpp");
+        let report = concat!(
+            "==10907==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000fc\n",
+            "READ of size 4 at 0x6020000000fc thread T0\n",
+            "    #0 0x000102ddca90 in std::__1::vector<int>::operator[] vector:1387\n",
+            "    #1 0x000102ddca90 in main main.cpp:9:20\n",
+        );
+
+        assert_eq!(
+            find_source_location(report, &source),
+            Some(SourceLocation {
+                line: 9,
+                column: Some(20),
+            })
+        );
     }
 
     #[test]
