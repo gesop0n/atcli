@@ -16,12 +16,20 @@ $ nix run github:gesop0n/atcli -- --help
 $ nix profile install github:gesop0n/atcli
 ```
 
+`github:gesop0n/atcli` は main の最新を指す。リリースを使う場合はタグで参照する。`v0.1.0` のようなバージョンタグは動かず、`latest` は最新のリリースを指す。
+
+```console
+$ nix profile install github:gesop0n/atcli/latest
+$ nix run github:gesop0n/atcli/v0.1.0 -- --help
+```
+
 リポジトリの devShell に入れる場合は flake input として参照する。
 
 ```nix
 {
   inputs.atcli = {
-    url = "github:gesop0n/atcli";
+    # 特定のリリースに固定するなら "github:gesop0n/atcli/v0.1.0"
+    url = "github:gesop0n/atcli/latest";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -30,6 +38,12 @@ $ nix profile install github:gesop0n/atcli
 ```
 
 `atcli test` と `atcli submit` は C++ コンパイラを呼ぶため、同じ shell に GCC が必要である。
+
+Nix を使わない場合は cargo でインストールできる。Rust 1.98 以降が必要。
+
+```console
+$ cargo install --git https://github.com/gesop0n/atcli --tag v0.1.0 atcli
+```
 
 ## リポジトリの準備
 
@@ -261,6 +275,12 @@ devShell には Rust toolchain に加えて GCC が入る。`atcli test` が C++
 ```console
 $ nix develop --override-input atcli path:/path/to/atcli
 ```
+
+### リリース
+
+`Cargo.toml` の `workspace.package.version` を上げて main に push する。CI が通ると [Tag Release](.github/workflows/tag.yml) が `v<version>` タグと GitHub Release を作り、`latest` タグをそこへ動かす。version を変えない push では何もしない。
+
+`workspace.dependencies` にある内部クレートの `version` も同じ値に上げる。ずれていると依存解決に失敗して CI が落ち、タグは付かない。
 
 ## ライセンス
 

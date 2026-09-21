@@ -1,0 +1,97 @@
+name: Tag Release
+
+# CI が main で通ったら、Cargo.toml の version で v<version> タグと GitHub Release を作る。
+# 利用者はタグで特定のリリースに固定でき、latest で最新のリリースを追える。
+#   inputs.atcli.url = "github:gesop0n/atcli/v0.1.0";
+# リリースするには Cargo.toml の version を上げて main に push するだけでよい。
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+# 並行して走ると、同じタグの作成や latest の移動が競合する。
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    # branches フィルタが見るのは起動元の head_branch だけなので、fork から main という名前の
+    # ブランチで出された PR でも一致してしまう。このリポジトリの main への push に限る。
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 既存タグとの比較に全タグが要る。
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # rust-toolchain.toml のツールチェーンを入れずに済むよう、cargo ではなく Python で読む。
+      - name: version を読む
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          # プレリリースは latest や Release の扱いを決めていないので、まだ受け付けない。
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Cargo.toml の version が X.Y.Z の形ではありません: $version"
+            exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: git を設定する
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # 一度付けたバージョンタグは動かさない。同じ version のまま push しても何もしない。
+      - name: バージョンタグを作る
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG は既にあるので作らない。"
+            exit 0
+          fi
+          git tag -a "$TAG" -m "atcli $TAG"
+          git push origin "$TAG"
+
+      # 古いラインへのパッチリリースで latest が巻き戻らないよう、最大のバージョンのときだけ動かす。
+      # 毎回あるべき位置と比べるので、途中で失敗しても次の実行で揃う。
+      - name: latest タグを動かす
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          newest=$(git tag -l 'v*' --sort=-version:refname | head -n1)
+          if [ "$newest" != "$TAG" ]; then
+            echo "最新は $newest なので latest は動かさない。"
+            exit 0
+          fi
+          if [ "$(git rev-parse -q --verify 'refs/tags/latest^{commit}' || true)" = "$(git rev-parse "$TAG^{commit}")" ]; then
+            exit 0
+          fi
+          git tag -f -a latest -m "atcli $TAG" "$TAG^{commit}"
+          git push --force origin latest
+
+      # タグの作成後に失敗しても、次の実行で Release だけ作り直せるようにする。
+      - name: GitHub Release を作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            exit 0
+          fi
+          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
