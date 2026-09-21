@@ -20,33 +20,7 @@
     # overlay は system に依存しないので eachSystem の外に出す。
     {
       overlays.default = final: _prev: {
-        atcli = final.callPackage (
-          {
-            rustPlatform,
-            gitMinimal,
-            makeWrapper,
-            lib,
-          }:
-          rustPlatform.buildRustPackage {
-            pname = "atcli";
-            version = "0.1.0";
-            src = lib.cleanSource ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-            cargoBuildFlags = [
-              "-p"
-              "atcli"
-            ];
-            nativeBuildInputs = [
-              gitMinimal
-              makeWrapper
-            ];
-            postInstall = ''
-              wrapProgram $out/bin/atcli \
-                --prefix PATH : ${lib.makeBinPath [ gitMinimal ]}
-            '';
-            meta.mainProgram = "atcli";
-          }
-        ) { };
+        atcli = final.callPackage ./package.nix { };
       };
     }
     # nixpkgs 26.11 が x86_64-darwin のサポートを打ち切ったため、eachDefaultSystem は
@@ -70,32 +44,7 @@
               cargo = rust;
               rustc = rust;
             };
-            atcli = rustPlatform.buildRustPackage {
-              pname = "atcli";
-              version = "0.1.0";
-              src = pkgs.lib.cleanSource ./.;
-              cargoLock.lockFile = ./Cargo.lock;
-              # ワークスペースのうち配布するのは atcli だけ。
-              cargoBuildFlags = [
-                "-p"
-                "atcli"
-              ];
-              cargoTestFlags = [ "--workspace" ];
-              # git は commit サブコマンドとそのテストで使う
-              nativeBuildInputs = [
-                pkgs.gitMinimal
-                pkgs.makeWrapper
-              ];
-              postInstall = ''
-                wrapProgram $out/bin/atcli \
-                  --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.gitMinimal ]}
-              '';
-              meta = {
-                description = "Prepare and locally test AtCoder solutions";
-                # apps を置かない代わりに nix run のフォールバック先を明示する
-                mainProgram = "atcli";
-              };
-            };
+            atcli = pkgs.callPackage ./package.nix { inherit rustPlatform; };
           in
           {
             formatter = pkgs.nixfmt-tree;
