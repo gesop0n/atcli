@@ -58,7 +58,7 @@ struct NewArgs {
     /// 問題を指定せずに全問題を作成する（問題数が多いコンテストで必要）
     #[arg(long, conflicts_with = "problems")]
     all: bool,
-    /// 作成後にコンテストディレクトリへ移動する（shell 統合が必要）
+    /// 作成後に移動する（1 問ならその問題、複数ならコンテストのディレクトリ。shell 統合が必要）
     #[arg(long)]
     cd: bool,
 }

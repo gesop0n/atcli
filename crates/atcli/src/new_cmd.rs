@@ -21,7 +21,7 @@ const MAX_IMPLICIT_TASKS: usize = 20;
 /// エラー文に並べる選択可能なラベルの上限。
 const MAX_LISTED_LABELS: usize = 20;
 
-/// 作成したコンテストディレクトリを返す。
+/// `--cd` の移動先を返す。1 問だけ作成したときはその取り組みディレクトリ、複数ならコンテストディレクトリ。
 ///
 /// `quiet` を立てると進捗表示を stderr へ回す。`--cd` のとき stdout を移動先のパス専用にして、
 /// shell 側が `$( )` でそのまま受け取れるようにするため。
@@ -41,7 +41,7 @@ pub fn run(
         .unwrap_or_else(|| Local::now().date_naive());
     let attempts_root = repository.root.join(&config.repository.attempts_dir);
     let problems_root = repository.root.join(&config.repository.problems_dir);
-    let destination = attempts_root
+    let contest_dir = attempts_root
         .join(format!("{:04}", date.year()))
         .join(format!("{:02}", date.month()))
         .join(format!("{:02}", date.day()))
@@ -55,11 +55,12 @@ pub fn run(
     let tasks = client.contest_tasks(&contest)?;
     let tasks = select_tasks(&tasks, requested_problems, all)?;
 
+    let mut attempt_dirs = Vec::with_capacity(tasks.len());
     for (index, task) in tasks.iter().enumerate() {
         let directory_name = task_directory_name(&task.label, &task.task_id)?;
         let problem_relative = PathBuf::from(&contest).join(&directory_name);
         let problem_dir = problems_root.join(&problem_relative);
-        let attempt_dir = destination.join(&directory_name);
+        let attempt_dir = contest_dir.join(&directory_name);
 
         let (sample_count, interactive, reused) = if problem_dir.join("meta.toml").is_file() {
             let meta = ProblemMeta::read(&problem_dir)?;
@@ -120,13 +121,17 @@ pub fn run(
                 if reused { ", reused problem data" } else { "" }
             ),
         );
+        attempt_dirs.push(attempt_dir);
         if index + 1 != tasks.len() {
             thread::sleep(Duration::from_millis(200));
         }
     }
 
-    report(quiet, &format!("Created {}", destination.display()));
-    Ok(destination)
+    report(quiet, &format!("Created {}", contest_dir.display()));
+    match attempt_dirs.as_slice() {
+        [attempt_dir] => Ok(attempt_dir.clone()),
+        _ => Ok(contest_dir),
+    }
 }
 
 fn report(quiet: bool, line: &str) {
